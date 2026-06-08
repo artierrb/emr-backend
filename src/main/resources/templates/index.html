@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="th" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EMR Document System</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.2/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap-icons/1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #1a4f7a;
+            --primary-light: #2563a8;
+            --accent: #0ea5e9;
+            --surface: #f8fafc;
+            --border: #e2e8f0;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --success: #16a34a;
+            --danger: #dc2626;
+        }
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: var(--surface); color: var(--text); min-height: 100vh; }
+
+        /* ── Header ── */
+        .app-header {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+            color: white; padding: 0.5rem 1.25rem;
+            display: flex; align-items: center; gap: 0.75rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        .app-header .bit-logo { height: 38px; width: auto; border-radius: 4px; }
+        .app-header h1 { font-size: 1.05rem; font-weight: 600; margin: 0; }
+        .app-header .subtitle { font-size: 0.72rem; opacity: 0.8; }
+        .header-spacer { flex: 1; }
+
+        /* ── User Button ── */
+        .user-btn {
+            position: relative;
+            background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3);
+            color: white; padding: 0.4rem 0.9rem; border-radius: 6px;
+            font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;
+            transition: background 0.2s;
+        }
+        .user-btn:hover { background: rgba(255,255,255,0.25); }
+        .user-dropdown {
+            display: none; position: absolute; top: calc(100% + 8px); right: 0;
+            background: white; border: 1px solid var(--border); border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12); min-width: 200px; z-index: 1000;
+            overflow: hidden;
+        }
+        .user-dropdown.open { display: block; }
+        .user-dropdown-item {
+            padding: 0.7rem 1rem; font-size: 0.87rem; color: var(--text);
+            cursor: pointer; display: flex; align-items: center; gap: 0.6rem;
+            transition: background 0.15s;
+        }
+        .user-dropdown-item:hover { background: #f0f7ff; color: var(--primary); }
+        .user-dropdown-item i { color: var(--text-muted); font-size: 0.95rem; }
+        .user-dropdown-divider { height: 1px; background: var(--border); margin: 0.25rem 0; }
+
+        /* ── Tabs ── */
+        .main-tabs { background: white; border-bottom: 2px solid var(--border); padding: 0 1.5rem; display: flex; }
+        .tab-btn { padding: 0.8rem 1.4rem; border: none; background: none; font-size: 0.88rem; font-weight: 500; color: var(--text-muted); cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; display: flex; align-items: center; gap: 0.45rem; transition: all 0.2s; }
+        .tab-btn:hover { color: var(--primary); }
+        .tab-btn.active { color: var(--primary); border-bottom-color: var(--accent); font-weight: 600; }
+
+        /* ── Tab Content ── */
+        .tab-content-area { display: none; padding: 1.5rem; }
+        .tab-content-area.active { display: block; }
+
+        /* ── Cards ── */
+        .card { border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+        .card-header-custom { background: white; border-bottom: 1px solid var(--border); padding: 0.8rem 1.2rem; border-radius: 10px 10px 0 0; font-weight: 600; font-size: 0.88rem; color: var(--primary); display: flex; align-items: center; gap: 0.5rem; }
+
+        /* ── Form controls ── */
+        .form-label { font-size: 0.82rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.3rem; }
+        .form-control, .form-select { font-size: 0.88rem; border-color: var(--border); border-radius: 6px; }
+        .form-control:focus, .form-select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(14,165,233,0.12); }
+
+        /* ── Buttons ── */
+        .btn-primary-custom { background: var(--primary); border: none; color: white; padding: 0.45rem 1.1rem; border-radius: 6px; font-size: 0.86rem; font-weight: 500; cursor: pointer; transition: background 0.2s; display: inline-flex; align-items: center; gap: 0.4rem; }
+        .btn-primary-custom:hover { background: var(--primary-light); }
+        .btn-primary-custom:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn-outline-custom { background: white; border: 1px solid var(--border); color: var(--text); padding: 0.45rem 1.1rem; border-radius: 6px; font-size: 0.86rem; cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 0.4rem; }
+        .btn-outline-custom:hover { border-color: var(--primary); color: var(--primary); }
+
+        /* ── Drop zone ── */
+        .drop-zone { border: 2px dashed var(--border); border-radius: 10px; padding: 2rem; text-align: center; cursor: pointer; transition: all 0.2s; background: #fafcff; }
+        .drop-zone:hover, .drop-zone.dragover { border-color: var(--accent); background: #eff8ff; }
+        .drop-zone .icon { font-size: 2rem; color: var(--text-muted); margin-bottom: 0.4rem; }
+        .drop-zone p { margin: 0; font-size: 0.86rem; color: var(--text-muted); }
+
+        /* ── Preview grid ── */
+        .preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.65rem; margin-top: 0.65rem; }
+        .preview-item { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; position: relative; background: white; }
+        .preview-item img { width: 100%; height: 110px; object-fit: cover; display: block; }
+        .preview-item .preview-info { padding: 0.3rem 0.45rem; font-size: 0.73rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .preview-item .remove-btn { position: absolute; top: 3px; right: 3px; background: rgba(0,0,0,0.5); color: white; border: none; border-radius: 50%; width: 20px; height: 20px; font-size: 0.68rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+
+        /* ── Result table ── */
+        .result-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        .result-table th { background: var(--surface); padding: 0.55rem 0.7rem; text-align: left; font-size: 0.76rem; color: var(--text-muted); border-bottom: 1px solid var(--border); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+        .result-table td { padding: 0.6rem 0.7rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        .result-table tr:last-child td { border-bottom: none; }
+        .result-table tr.clickable:hover { background: #f0f7ff; cursor: pointer; }
+        .result-table tr.selected { background: #dbeafe; }
+
+        /* ── Image viewer overlay ── */
+        .image-viewer-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 9999; flex-direction: column; }
+        .image-viewer-overlay.open { display: flex; }
+        .viewer-toolbar { background: rgba(0,0,0,0.6); padding: 0.55rem 1rem; display: flex; align-items: center; gap: 0.5rem; color: white; }
+        .viewer-toolbar span { flex: 1; font-size: 0.83rem; opacity: 0.8; }
+        .viewer-btn { background: rgba(255,255,255,0.15); border: none; color: white; padding: 0.35rem 0.7rem; border-radius: 5px; cursor: pointer; font-size: 0.83rem; transition: background 0.2s; }
+        .viewer-btn:hover { background: rgba(255,255,255,0.3); }
+        .viewer-body { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; padding: 1rem; }
+        .viewer-body img { max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: center; transition: transform 0.2s; }
+
+        /* ── Modal Overlay (blur) ── */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0; z-index: 5000;
+            background: rgba(15,23,42,0.5); backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            align-items: center; justify-content: center;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal-panel {
+            background: white; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+            display: flex; flex-direction: column; max-height: 90vh; overflow: hidden;
+            animation: modalIn 0.22s ease;
+        }
+        @keyframes modalIn { from { opacity:0; transform: scale(0.96) translateY(8px); } to { opacity:1; transform: scale(1) translateY(0); } }
+        .modal-header {
+            padding: 0.9rem 1.25rem; border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; gap: 0.6rem;
+            font-weight: 600; font-size: 0.95rem; color: var(--primary);
+        }
+        .modal-header .modal-close {
+            margin-left: auto; background: none; border: none; color: var(--text-muted);
+            font-size: 1.1rem; cursor: pointer; padding: 0.2rem 0.4rem; border-radius: 4px;
+        }
+        .modal-header .modal-close:hover { background: var(--surface); color: var(--danger); }
+        .modal-body { flex: 1; overflow-y: auto; padding: 1rem 1.25rem; }
+        .modal-footer { padding: 0.75rem 1.25rem; border-top: 1px solid var(--border); display: flex; gap: 0.5rem; justify-content: flex-end; }
+
+        /* ── Config table ── */
+        .config-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        .config-table th { background: var(--surface); padding: 0.5rem 0.7rem; font-size: 0.76rem; color: var(--text-muted); border-bottom: 1px solid var(--border); font-weight: 600; text-align: left; }
+        .config-table td { padding: 0.4rem 0.7rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        .config-table tr:last-child td { border-bottom: none; }
+        .config-table tr:hover td { background: #fafcff; }
+        .config-val-input { border: 1px solid transparent; border-radius: 4px; padding: 0.25rem 0.4rem; font-size: 0.85rem; width: 100%; background: transparent; }
+        .config-val-input:focus { border-color: var(--accent); background: white; outline: none; box-shadow: 0 0 0 2px rgba(14,165,233,0.15); }
+        .config-val-select { border: 1px solid var(--border); border-radius: 4px; padding: 0.25rem 0.4rem; font-size: 0.85rem; width: 100%; }
+
+        /* ── Detail Master layout ── */
+        .master-layout { display: grid; grid-template-columns: 220px 1fr; gap: 0; height: 520px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+        .master-left { border-right: 1px solid var(--border); overflow-y: auto; }
+        .master-right { display: grid; grid-template-rows: 1fr 1fr; overflow: hidden; }
+        .master-right-top { border-bottom: 1px solid var(--border); overflow-y: auto; }
+        .master-right-bottom { overflow-y: auto; }
+        /* ── Master toolbar ── */
+        .master-toolbar {
+            background: #f8fafc; border-bottom: 1px solid var(--border);
+            padding: 0.35rem 0.6rem; display: flex; align-items: center; gap: 0.3rem;
+            flex-shrink: 0;
+        }
+        .master-section-label { font-size: 0.76rem; font-weight: 600; color: var(--primary); margin-right: 0.3rem; }
+        .master-tool-btn {
+            background: white; border: 1px solid var(--border); color: var(--text);
+            padding: 0.22rem 0.5rem; border-radius: 4px; font-size: 0.78rem;
+            cursor: pointer; transition: all 0.15s; line-height: 1;
+        }
+        .master-tool-btn:hover { border-color: var(--primary); color: var(--primary); background: #f0f7ff; }
+        .master-tool-btn.danger:hover { border-color: var(--danger); color: var(--danger); background: #fef2f2; }
+
+        /* ── Inline form ── */
+        .inline-form {
+            background: #eff8ff; border-top: 2px solid var(--accent);
+            padding: 0.65rem 1rem; margin-top: 0.5rem; border-radius: 0 0 8px 8px;
+        }
+        .inline-form-title { font-size: 0.82rem; font-weight: 600; color: var(--primary); margin-bottom: 0.5rem; }
+        .inline-form-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
+        .inline-form-row > div { display: flex; flex-direction: column; flex: 1; min-width: 120px; }
+        .inline-form-row label { font-size: 0.72rem; color: var(--text-muted); font-weight: 600; margin-bottom: 0.2rem; }
+        .inline-form-actions { display: flex; gap: 0.4rem; }
+
+        /* ── Drag handle ── */
+        .drag-handle { cursor: grab; color: var(--text-muted); font-size: 0.85rem; padding: 0 0.2rem; user-select: none; }
+        .drag-handle:active { cursor: grabbing; }
+        tr.dragging { opacity: 0.4; background: #dbeafe !important; }
+        tr.drag-over { border-top: 2px solid var(--accent); }
+
+        .master-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+        .master-table th { background: var(--primary); color: white; padding: 0.45rem 0.6rem; font-size: 0.74rem; font-weight: 500; position: sticky; top: 0; z-index: 1; }
+        .master-table td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
+        .master-table tr.clickable:hover td { background: #f0f7ff; cursor: pointer; }
+        .master-table tr.selected td { background: #dbeafe; }
+
+        /* ── Misc ── */
+        .empty-state { text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); }
+        .empty-state i { font-size: 2rem; display: block; margin-bottom: 0.6rem; }
+        .empty-state p { font-size: 0.85rem; margin: 0; }
+        .loading-spinner { display: inline-block; width: 15px; height: 15px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .badge-form { background: #e0f2fe; color: #0369a1; padding: 0.18rem 0.45rem; border-radius: 4px; font-size: 0.73rem; font-weight: 500; }
+        .badge-page { background: #fef3c7; color: #92400e; padding: 0.18rem 0.45rem; border-radius: 4px; font-size: 0.73rem; }
+        .toast-container { position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 10000; display: flex; flex-direction: column; gap: 0.5rem; }
+        .toast-item { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 0.7rem 1rem; box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: flex; align-items: center; gap: 0.55rem; font-size: 0.85rem; min-width: 260px; animation: slideIn 0.3s ease; }
+        .toast-item.success { border-left: 4px solid var(--success); }
+        .toast-item.error   { border-left: 4px solid var(--danger); }
+        .toast-item.info    { border-left: 4px solid var(--accent); }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    </style>
+<script th:src="@{/js/app.js}" defer></script>
+</head>
+<body>
+
+<!-- ══ Header ══════════════════════════════════════════════ -->
+<header class="app-header">
+    <img src="data:image/jpeg;base64,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" class="bit-logo" alt="BIT Logo">
+    <div>
+        <h1>EMR Document System</h1>
+        <div class="subtitle">Scan &amp; Viewer — Demo</div>
+    </div>
+    <div class="header-spacer"></div>
+
+    <!-- User Button -->
+    <div style="position:relative;">
+        <button class="user-btn" id="user-btn" onclick="toggleUserMenu(event)">
+            <i class="bi bi-person-circle"></i>
+            <span id="user-display-name">DEMO</span>
+            <i class="bi bi-chevron-down" style="font-size:0.7rem;opacity:0.7;"></i>
+        </button>
+        <div class="user-dropdown" id="user-dropdown">
+            <div class="user-dropdown-item" onclick="openProgramConfig()">
+                <i class="bi bi-gear"></i> Program Configuration
+            </div>
+            <div class="user-dropdown-divider"></div>
+            <div class="user-dropdown-item" onclick="openDetailMaster()">
+                <i class="bi bi-table"></i> Detail Master
+            </div>
+        </div>
+    </div>
+</header>
+
+<!-- ══ Tabs ════════════════════════════════════════════════ -->
+<div class="main-tabs">
+    <button class="tab-btn active" onclick="switchTab('scan', this)">
+        <i class="bi bi-scanner"></i> Scan เอกสาร
+    </button>
+    <button class="tab-btn" onclick="switchTab('viewer', this)">
+        <i class="bi bi-eye"></i> ดูเอกสาร
+    </button>
+</div>
+
+<!-- ══ TAB: SCAN ════════════════════════════════════════════ -->
+<div id="tab-scan" class="tab-content-area active">
+    <div class="row g-3">
+        <div class="col-lg-4">
+            <div class="card">
+                <div class="card-header-custom"><i class="bi bi-input-cursor-text"></i> ข้อมูลการ Scan</div>
+                <div class="p-3">
+                    <div class="mb-3">
+                        <label class="form-label">HN (รหัสผู้ป่วย) <span class="text-danger">*</span></label>
+                        <div id="scan-hn-inputer"></div>
+                        <div id="scan-patient-info" style="display:none;margin-top:0.4rem;padding:0.5rem 0.75rem;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;gap:0.6rem;align-items:center;"></div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">ประเภทฟอร์ม <span class="text-danger">*</span></label>
+                        <select id="scan-formcode" class="form-select">
+                            <option value="">-- เลือกฟอร์ม --</option>
+                            <th:block th:each="form : ${forms}">
+                                <option th:value="${form.formCode}" th:text="${form.formCode} + ' - ' + ${form.name}"></option>
+                            </th:block>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">รหัสผู้ใช้</label>
+                        <input type="text" id="scan-userid" class="form-control" value="DEMO" maxlength="10">
+                    </div>
+                    <hr>
+                    <button class="btn-primary-custom w-100" id="btn-upload" onclick="submitScan()" disabled>
+                        <i class="bi bi-cloud-upload"></i> บันทึกทั้งหมด (<span id="upload-count">0</span> ไฟล์)
+                    </button>
+                    <div id="upload-progress" style="display:none;margin-top:0.75rem;">
+                        <div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.3rem;">กำลังบันทึก... <span id="progress-text">0/0</span></div>
+                        <div style="background:var(--border);border-radius:4px;height:5px;">
+                            <div id="progress-bar" style="background:var(--accent);height:100%;border-radius:4px;width:0%;transition:width 0.3s;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-8">
+            <div class="card">
+                <div class="card-header-custom">
+                    <i class="bi bi-images"></i> เลือกไฟล์ภาพ
+                    <span style="margin-left:auto;font-size:0.76rem;color:var(--text-muted);font-weight:400;">รองรับ JPG, PNG, TIF, PDF</span>
+                </div>
+                <div class="p-3">
+                    <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()"
+                         ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+                        <div class="icon"><i class="bi bi-cloud-arrow-up"></i></div>
+                        <p><strong>คลิกเพื่อเลือกไฟล์</strong> หรือลากไฟล์มาวางที่นี่</p>
+                        <p style="margin-top:0.2rem;font-size:0.76rem;">เลือกได้หลายไฟล์พร้อมกัน</p>
+                    </div>
+                    <input type="file" id="file-input" multiple accept=".jpg,.jpeg,.png,.tif,.tiff,.pdf" style="display:none" onchange="handleFileSelect(event)">
+                    <div id="preview-grid" class="preview-grid"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══ TAB: VIEWER ═════════════════════════════════════════ -->
+<div id="tab-viewer" class="tab-content-area">
+    <div class="row g-3">
+        <div class="col-12">
+            <div class="card">
+                <div class="p-3">
+                    <div class="row g-2 align-items-end">
+                        <div class="col-sm-5">
+                            <label class="form-label">HN (รหัสผู้ป่วย)</label>
+                            <div id="view-hn-inputer"></div>
+                            <div id="view-patient-info" style="display:none;margin-top:0.3rem;padding:0.5rem 0.75rem;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;gap:0.6rem;align-items:center;"></div>
+                        </div>
+                        <div class="col-sm-auto">
+                            <button class="btn-primary-custom" onclick="searchTreatments()"><i class="bi bi-search"></i> ค้นหา</button>
+                        </div>
+                        <div class="col-sm-auto">
+                            <button class="btn-outline-custom" onclick="clearViewer()"><i class="bi bi-x-circle"></i> ล้าง</button>
+                        </div>
+                        <div class="col-sm-auto ms-auto" style="font-size:0.8rem;color:var(--text-muted);">
+                            <span id="viewer-status"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card h-100">
+                <div class="card-header-custom">
+                    <i class="bi bi-calendar3"></i> รายการการรักษา
+                    <span id="treat-count" style="margin-left:auto;font-size:0.76rem;color:var(--text-muted);font-weight:400;"></span>
+                </div>
+                <div style="overflow-y:auto;max-height:500px;">
+                    <div id="treatment-list"><div class="empty-state"><i class="bi bi-search"></i><p>กรอก HN เพื่อค้นหา</p></div></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg-8">
+            <div class="card h-100">
+                <div class="card-header-custom">
+                    <i class="bi bi-file-earmark-image"></i> รายการภาพเอกสาร
+                    <span id="page-count" style="margin-left:auto;font-size:0.76rem;color:var(--text-muted);font-weight:400;"></span>
+                </div>
+                <div style="overflow-y:auto;max-height:500px;">
+                    <div id="chartpage-list"><div class="empty-state"><i class="bi bi-hand-index"></i><p>เลือกรายการการรักษาด้านซ้าย</p></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══ Image Viewer ════════════════════════════════════════ -->
+<div class="image-viewer-overlay" id="image-viewer">
+    <div class="viewer-toolbar">
+        <button class="viewer-btn" onclick="zoomOut()"><i class="bi bi-zoom-out"></i></button>
+        <button class="viewer-btn" onclick="zoomIn()"><i class="bi bi-zoom-in"></i></button>
+        <button class="viewer-btn" onclick="zoomReset()"><i class="bi bi-aspect-ratio"></i></button>
+        <button class="viewer-btn" onclick="rotateImg()"><i class="bi bi-arrow-clockwise"></i></button>
+        <span id="viewer-label">-</span>
+        <button class="viewer-btn" onclick="closeViewer()"><i class="bi bi-x-lg"></i></button>
+    </div>
+    <div class="viewer-body"><img id="viewer-img" src="" alt="document"></div>
+</div>
+
+<!-- ══ Modal: Program Configuration ═══════════════════════ -->
+<div class="modal-overlay" id="modal-config">
+    <div class="modal-panel" style="width:700px;">
+        <div class="modal-header">
+            <i class="bi bi-gear"></i> Program Configuration
+            <button class="modal-close" onclick="closeModal('modal-config')"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="mb-3 d-flex gap-2">
+                <input type="text" id="config-search" class="form-control" placeholder="ค้นหา..."
+                       onkeydown="if(event.key==='Enter') loadConfig()" style="max-width:240px;">
+                <button class="btn-primary-custom" onclick="loadConfig()">
+                    <i class="bi bi-search"></i> ค้นหา
+                </button>
+                <span style="font-size:0.8rem;color:var(--text-muted);align-self:center;" id="config-count"></span>
+            </div>
+            <div id="config-loading" class="text-center py-4" style="display:none;">
+                <span class="loading-spinner"></span>
+            </div>
+            <table class="config-table" id="config-table">
+                <thead><tr>
+                    <th style="width:50%">Question</th>
+                    <th>Answer</th>
+                </tr></thead>
+                <tbody id="config-tbody"></tbody>
+            </table>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-outline-custom" onclick="closeModal('modal-config')">ยกเลิก</button>
+            <button class="btn-primary-custom" onclick="saveConfig()"><i class="bi bi-save"></i> Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- ══ Popup: Master CRUD Form ══════════════════════════════ -->
+<div class="modal-overlay" id="modal-crud" style="z-index:6000;">
+    <div class="modal-panel" style="width:480px;">
+        <div class="modal-header">
+            <i class="bi" id="crud-icon"></i>
+            <span id="crud-title">ฟอร์ม</span>
+            <button class="modal-close" onclick="closeCrudForm()"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="modal-body" id="crud-body"></div>
+        <div class="modal-footer">
+            <button class="btn-outline-custom" onclick="closeCrudForm()">ยกเลิก</button>
+            <button class="btn-primary-custom" id="crud-save-btn"><i class="bi bi-check-lg"></i> บันทึก</button>
+        </div>
+    </div>
+</div>
+
+<!-- ══ Modal: Detail Master ════════════════════════════════ -->
+<div class="modal-overlay" id="modal-master">
+    <div class="modal-panel" style="width:900px;">
+        <div class="modal-header">
+            <i class="bi bi-table"></i> Detail Master
+            <button class="modal-close" onclick="closeModal('modal-master')"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="modal-body" style="padding-bottom:0.5rem;">
+            <div class="mb-2">
+                <select id="master-tabtyp" class="form-select" style="max-width:320px;" onchange="loadTabMst()">
+                    <option value="">-- เลือกประเภท --</option>
+                </select>
+            </div>
+            <div class="master-layout">
+                <!-- Left: TabMst -->
+                <div class="master-left" style="display:flex;flex-direction:column;">
+                    <div class="master-toolbar">
+                        <span class="master-section-label"><i class="bi bi-table"></i> Table</span>
+                        <button class="master-tool-btn" onclick="showTabMstForm()" title="เพิ่ม"><i class="bi bi-plus-lg"></i></button>
+                        <button class="master-tool-btn" onclick="editTabMstRow()" title="แก้ไข"><i class="bi bi-pencil"></i></button>
+                        <button class="master-tool-btn danger" onclick="deleteTabMstRow()" title="ลบ"><i class="bi bi-trash"></i></button>
+                    </div>
+                    <div style="flex:1;overflow-y:auto;">
+                        <table class="master-table">
+                            <thead><tr><th>Table Code</th><th>Table Code Name</th></tr></thead>
+                            <tbody id="master-tabmst-body">
+                                <tr><td colspan="2" class="text-center py-3" style="color:var(--text-muted);font-size:0.82rem;">เลือกประเภทด้านบน</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <!-- Right -->
+                <div class="master-right">
+                    <div class="master-right-top" style="display:flex;flex-direction:column;">
+                        <div class="master-toolbar">
+                            <span class="master-section-label"><i class="bi bi-list-ul"></i> Detail</span>
+                            <button class="master-tool-btn" onclick="showDtlMstForm()" title="เพิ่ม"><i class="bi bi-plus-lg"></i></button>
+                            <button class="master-tool-btn" onclick="editDtlMstRow()" title="แก้ไข"><i class="bi bi-pencil"></i></button>
+                            <button class="master-tool-btn danger" onclick="deleteDtlMstRow()" title="ลบ"><i class="bi bi-trash"></i></button>
+                            <span style="font-size:0.72rem;color:var(--text-muted);margin-left:auto;padding-right:0.5rem;">ลากหัวแถวเพื่อเรียงลำดับ</span>
+                        </div>
+                        <div style="flex:1;overflow-y:auto;">
+                            <table class="master-table" id="dtlmst-table">
+                                <thead><tr><th style="width:28px;"></th><th>Code</th><th>Code Name</th><th>Code Value</th></tr></thead>
+                                <tbody id="master-dtlmst-body">
+                                    <tr><td colspan="5" class="text-center py-3" style="color:var(--text-muted);font-size:0.82rem;">เลือกรายการด้านซ้าย</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="master-right-bottom" style="display:flex;flex-direction:column;">
+                        <div class="master-toolbar">
+                            <span class="master-section-label"><i class="bi bi-diagram-3"></i> Sub Detail</span>
+                            <button class="master-tool-btn" onclick="showDtsMstForm()" title="เพิ่ม"><i class="bi bi-plus-lg"></i></button>
+                            <button class="master-tool-btn" onclick="editDtsMstRow()" title="แก้ไข"><i class="bi bi-pencil"></i></button>
+                            <button class="master-tool-btn danger" onclick="deleteDtsMstRow()" title="ลบ"><i class="bi bi-trash"></i></button>
+                            <span style="font-size:0.72rem;color:var(--text-muted);margin-left:auto;padding-right:0.5rem;">ลากหัวแถวเพื่อเรียงลำดับ</span>
+                        </div>
+                        <div style="flex:1;overflow-y:auto;">
+                            <table class="master-table" id="dtsmst-table">
+                                <thead><tr><th style="width:28px;"></th><th>Sub Code</th><th>Code Name</th><th>Code Value</th></tr></thead>
+                                <tbody id="master-dtsmst-body">
+                                    <tr><td colspan="6" class="text-center py-3" style="color:var(--text-muted);font-size:0.82rem;">เลือกรายการด้านขวาบน</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Inline forms for add/edit -->
+            <div id="tabmst-form" class="inline-form" style="display:none;">
+                <div class="inline-form-title" id="tabmst-form-title">เพิ่ม Table</div>
+                <div class="inline-form-row">
+                    <div><label>Table Code *</label><input id="f-tab-cod" class="form-control form-control-sm" maxlength="8" style="text-transform:uppercase"></div>
+                    <div><label>Table Code Name</label><input id="f-tab-nam" class="form-control form-control-sm"></div>
+                    <input type="hidden" id="f-tab-typ">
+                </div>
+                <div class="inline-form-actions">
+                    <button class="btn-primary-custom" style="font-size:0.82rem;padding:0.3rem 0.8rem;" onclick="saveTabMst()"><i class="bi bi-check-lg"></i> บันทึก</button>
+                    <button class="btn-outline-custom" style="font-size:0.82rem;padding:0.3rem 0.8rem;" onclick="hideTabMstForm()">ยกเลิก</button>
+                </div>
+            </div>
+            <div id="dtlmst-form" class="inline-form" style="display:none;">
+                <div class="inline-form-title">เพิ่ม Detail</div>
+                <div class="inline-form-row">
+                    <div><label>DtlCod *</label><input id="f-dtl-cod" class="form-control form-control-sm" maxlength="10" style="text-transform:uppercase"></div>
+                    <div style="flex:2"><label>DtlCodNam</label><input id="f-dtl-nam" class="form-control form-control-sm"></div>
+                    <div style="flex:2"><label>DtlCodVal</label><input id="f-dtl-val" class="form-control form-control-sm"></div>
+                </div>
+                <div class="inline-form-actions">
+                    <button class="btn-primary-custom" style="font-size:0.82rem;padding:0.3rem 0.8rem;" onclick="saveDtlMst()"><i class="bi bi-check-lg"></i> บันทึก</button>
+                    <button class="btn-outline-custom" style="font-size:0.82rem;padding:0.3rem 0.8rem;" onclick="document.getElementById('dtlmst-form').style.display='none'">ยกเลิก</button>
+                </div>
+            </div>
+            <div id="dtsmst-form" class="inline-form" style="display:none;">
+                <div class="inline-form-title">เพิ่ม Sub Detail</div>
+                <div class="inline-form-row">
+                    <div><label>SubCod *</label><input id="f-dts-sub" class="form-control form-control-sm" maxlength="10" style="text-transform:uppercase"></div>
+                    <div style="flex:2"><label>DtsCodNam</label><input id="f-dts-nam" class="form-control form-control-sm"></div>
+                    <div style="flex:2"><label>DtsCodVal</label><input id="f-dts-val" class="form-control form-control-sm"></div>
+                </div>
+                <div class="inline-form-actions">
+                    <button class="btn-primary-custom" style="font-size:0.82rem;padding:0.3rem 0.8rem;" onclick="saveDtsMst()"><i class="bi bi-check-lg"></i> บันทึก</button>
+                    <button class="btn-outline-custom" style="font-size:0.82rem;padding:0.3rem 0.8rem;" onclick="document.getElementById('dtsmst-form').style.display='none'">ยกเลิก</button>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-outline-custom" onclick="closeModal('modal-master')">ปิด</button>
+        </div>
+    </div>
+</div>
+
+<!-- ══ Modal: Patient Search ══════════════════════════════════ -->
+<div class="modal-overlay" id="modal-patient" style="z-index:6000;">
+    <div class="modal-panel" style="width:760px;max-height:85vh;">
+        <div class="modal-header">
+            <i class="bi bi-person-search"></i> ค้นหาผู้ป่วย
+            <button class="master-tool-btn" style="margin-left:auto;margin-right:0.5rem;" onclick="showAddPatientForm()" title="เพิ่มผู้ป่วย">
+                <i class="bi bi-plus-lg"></i> เพิ่มผู้ป่วย
+            </button>
+            <button class="modal-close" onclick="closeModal('modal-patient')"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="d-flex gap-2 mb-3">
+                <select id="pt-search-field" class="form-select" style="max-width:180px;">
+                    <option value="PATID">HN</option>
+                    <option value="NAME">ชื่อ</option>
+                    <option value="JUMINNO">เลขบัตรประชาชน</option>
+                </select>
+                <input type="text" id="pt-search-kw" class="form-control" placeholder="คำค้นหา..."
+                       onkeydown="if(event.key==='Enter') searchPatient()">
+                <button class="btn-primary-custom" onclick="searchPatient()"><i class="bi bi-search"></i> ค้นหา</button>
+            </div>
+            <div id="pt-search-result">
+                <div class="empty-state"><i class="bi bi-person-search"></i><p>กรอกคำค้นหาแล้วกด Enter</p></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══ Modal: Add Patient ══════════════════════════════════════ -->
+<div class="modal-overlay" id="modal-add-patient" style="z-index:7000;">
+    <div class="modal-panel" style="width:480px;">
+        <div class="modal-header">
+            <i class="bi bi-person-plus"></i> เพิ่มข้อมูลผู้ป่วย
+            <button class="modal-close" onclick="closeModal('modal-add-patient')"><i class="bi bi-x-lg"></i></button>
+        </div>
+        <div class="modal-body">
+            <div class="mb-3">
+                <label class="form-label">HN <span class="text-danger">*</span></label>
+                <div id="add-pt-hn-inputer"></div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">ชื่อ-สกุล <span class="text-danger">*</span></label>
+                <input type="text" id="add-pt-name" class="form-control" maxlength="64">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">เพศ</label>
+                <select id="add-pt-sex" class="form-select">
+                    <option value="">-- เลือก --</option>
+                    <option value="M">M - Male</option>
+                    <option value="F">F - Female</option>
+                </select>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">เลขบัตรประชาชน</label>
+                <input type="text" id="add-pt-juminno" class="form-control" maxlength="13">
+            </div>
+            <div class="mb-3">
+                <label class="form-label">วันเกิด (YYYYMMDD)</label>
+                <input type="date" id="add-pt-birth" class="form-control">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn-outline-custom" onclick="closeModal('modal-add-patient')">ยกเลิก</button>
+            <button class="btn-primary-custom" onclick="saveNewPatient()"><i class="bi bi-check-lg"></i> บันทึก</button>
+        </div>
+    </div>
+</div>
+
+<!-- ══ Toast ════════════════════════════════════════════════ -->
+<div class="toast-container" id="toast-container"></div>
+
+
+</body>
+</html>
