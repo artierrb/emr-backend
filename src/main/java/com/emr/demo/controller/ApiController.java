@@ -22,6 +22,142 @@ public class ApiController {
         this.emrService = emrService;
     }
 
+    @GetMapping("/clinic/search")
+    public ResponseEntity<?> searchClinic(@RequestParam(defaultValue="") String keyword) {
+        try { return ResponseEntity.ok(emrService.searchClinic(keyword)); }
+        catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    @GetMapping("/user/search")
+    public ResponseEntity<?> searchUser(@RequestParam(defaultValue="") String keyword) {
+        try { return ResponseEntity.ok(emrService.searchUser(keyword)); }
+        catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    @PostMapping("/treatments/insert")
+    public ResponseEntity<?> insertTreatment(@RequestBody Map<String,String> b) {
+        try {
+            long treatNo = emrService.insertTreatmentFull(
+                b.get("patId"), b.get("inDate"), b.get("clinCode"),
+                b.getOrDefault("docCode",""), b.get("classType"),
+                b.getOrDefault("vstNum",""), b.getOrDefault("admNum",""),
+                b.getOrDefault("userId","DEMO")
+            );
+            return ResponseEntity.ok(Map.of("success", true, "treatNo", treatNo));
+        } catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    @DeleteMapping("/treatments/{treatNo}")
+    public ResponseEntity<?> deleteTreatment(@PathVariable long treatNo) {
+        try { emrService.deleteTreatment(treatNo); return ResponseEntity.ok(Map.of("success", true)); }
+        catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    // ─── OCR Print ────────────────────────────────────────────────
+
+    @GetMapping("/ocrprint/setup")
+    public ResponseEntity<?> getOcrPrintSetup(
+            @RequestParam(defaultValue="ALL") String gubun,
+            @RequestParam(defaultValue="") String clinCode,
+            jakarta.servlet.http.HttpServletRequest req) {
+        try {
+            String userId = (String) req.getAttribute("userId");
+            return ResponseEntity.ok(emrService.getOcrPrintSetup(gubun, userId, clinCode));
+        } catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    @GetMapping("/ocrprint/checkreprint")
+    public ResponseEntity<?> checkReprint(@RequestParam String ocmNum, @RequestParam String formCode) {
+        try { return ResponseEntity.ok(Map.of("reprinted", emrService.checkReprint(ocmNum, formCode))); }
+        catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    @GetMapping("/ocrprint/reasons")
+    public ResponseEntity<?> getReprintReasons() {
+        try { return ResponseEntity.ok(emrService.getReprintReasons()); }
+        catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    @PostMapping("/ocrprint/print")
+    public ResponseEntity<?> printOcr(@RequestBody Map<String,String> b,
+            jakarta.servlet.http.HttpServletRequest req) {
+        try {
+            String userId = (String) req.getAttribute("userId");
+            Long treatNo = null;
+            String treatNoStr = b.get("treatNo");
+            if (treatNoStr != null && !treatNoStr.isBlank()) {
+                try { treatNo = Long.parseLong(treatNoStr); } catch (Exception ignored) {}
+            }
+            emrService.printOcr(
+                b.get("ocmNum"), b.get("outDate"), b.get("formCode"),
+                userId, b.getOrDefault("reason",""), b.getOrDefault("patType","O"),
+                b.get("patId"), b.get("inDate"), b.get("clinCode"), b.get("docCode"),
+                treatNo
+            );
+            return ResponseEntity.ok(Map.of("success", true));
+        } catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    @GetMapping("/ocrprint/pdf/{formCode}")
+    public ResponseEntity<byte[]> getPdf(@PathVariable String formCode) {
+        try {
+            byte[] bytes = emrService.getPdfBytes(formCode);
+            return ResponseEntity.ok()
+                    .contentType(org.springframework.http.MediaType.APPLICATION_PDF)
+                    .header("Cache-Control", "no-cache")
+                    .header("Content-Disposition", "inline; filename=\"" + formCode + ".pdf\"")
+                    .body(bytes);
+        } catch (Exception e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    // ─── Viewer ───────────────────────────────────────────────────
+
+    @GetMapping("/viewer/treatments")
+    public ResponseEntity<?> getViewerTreatments(@RequestParam String hn) {
+        try { return ResponseEntity.ok(emrService.getViewerTreatments(hn)); }
+        catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    @GetMapping("/viewer/pages")
+    public ResponseEntity<?> getViewerPages(@RequestParam String hn, @RequestParam String formCode,
+            @RequestParam(defaultValue="ALL") String classFilter) {
+        try { return ResponseEntity.ok(emrService.getViewerPages(hn, formCode, classFilter)); }
+        catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    @GetMapping("/viewer/pages/treat")
+    public ResponseEntity<?> getViewerPagesByTreat(@RequestParam Long treatNo, @RequestParam String formCode) {
+        try { return ResponseEntity.ok(emrService.getViewerPagesByTreat(treatNo, formCode)); }
+        catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    @GetMapping("/treatments/full")
+    public ResponseEntity<?> getTreatmentsFull(@RequestParam String hn) {
+        try { return ResponseEntity.ok(emrService.getTreatmentsFull(hn)); }
+        catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    @PostMapping("/treatments/check")
+    public ResponseEntity<?> updateTreatCheck(@RequestBody Map<String,String> b) {
+        try {
+            emrService.updateTreatCheck(
+                Long.parseLong(b.get("treatNo")),
+                Integer.parseInt(b.get("checkNo")),
+                b.get("value"),
+                b.getOrDefault("userId", "DEMO")
+            );
+            return ResponseEntity.ok(Map.of("success", true));
+        } catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    @GetMapping("/treatments/formcount")
+    public ResponseEntity<?> getFormCount(@RequestParam Long treatNo) {
+        try { return ResponseEntity.ok(emrService.getFormCountByTreatNo(treatNo)); }
+        catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
     @GetMapping("/treatments")
     public ResponseEntity<?> getTreatments(@RequestParam String hn) {
         if (hn == null || hn.isBlank()) {
@@ -33,6 +169,19 @@ public class ApiController {
             log.error("Error getting treatments for HN={}", hn, e);
             return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
         }
+    }
+
+    @PostMapping("/chartpages/move")
+    public ResponseEntity<?> moveChartPages(@RequestBody java.util.Map<String, Object> b) {
+        try {
+            @SuppressWarnings("unchecked")
+            java.util.List<Integer> pageNos = (java.util.List<Integer>) b.get("pageNos");
+            String newFormCode = (String) b.get("newFormCode");
+            if (pageNos == null || pageNos.isEmpty()) return ResponseEntity.badRequest().body(Map.of("error","pageNos required"));
+            if (newFormCode == null || newFormCode.isBlank()) return ResponseEntity.badRequest().body(Map.of("error","newFormCode required"));
+            emrService.moveChartPages(pageNos.stream().map(Long::valueOf).toList(), newFormCode);
+            return ResponseEntity.ok(Map.of("success", true, "moved", pageNos.size()));
+        } catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
     }
 
     @GetMapping("/chartpages/{treatNo}")
@@ -53,7 +202,9 @@ public class ApiController {
             MediaType mediaType = resolveMediaType(ext);
             return ResponseEntity.ok()
                     .contentType(mediaType)
-                    .header(HttpHeaders.CACHE_CONTROL, "max-age=3600")
+                    .header(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, must-revalidate")
+                    .header("Pragma", "no-cache")
+                    .header("Expires", "0")
                     .body(bytes);
         } catch (IOException e) {
             log.warn("Image not found: pageNo={} ext={}", pageNo, ext);
@@ -67,6 +218,7 @@ public class ApiController {
             @RequestParam String formCode,
             @RequestParam(defaultValue = "000") String grpMid,
             @RequestParam(defaultValue = "DEMO") String userId,
+            @RequestParam(required = false) Long treatNo,
             @RequestParam("file") MultipartFile file) {
 
         if (hn == null || hn.isBlank()) {
@@ -77,7 +229,7 @@ public class ApiController {
         }
 
         try {
-            long pageNo = emrService.saveScan(hn, formCode, grpMid, file, userId);
+            long pageNo = emrService.saveScan(hn, formCode, grpMid, treatNo, file, userId);
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "pageNo", pageNo,
@@ -87,6 +239,12 @@ public class ApiController {
             log.error("Error saving scan HN={} FORMCODE={}", hn, formCode, e);
             return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
         }
+    }
+
+    @GetMapping("/config/prgmode")
+    public ResponseEntity<?> getPrgMode() {
+        try { return ResponseEntity.ok(Map.of("prgMode", emrService.getPrgMode())); }
+        catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
     }
 
     @GetMapping("/forms")
@@ -254,6 +412,61 @@ public class ApiController {
                     b.getOrDefault("userId","DEMO"));
             return ResponseEntity.ok(Map.of("success",true));
         } catch(Exception e) { return ResponseEntity.status(500).body(Map.of("error",e.getMessage())); }
+    }
+
+
+    // ─── EMRScan Integration ──────────────────────────────────────────────────
+
+    // GET /api/scan/token — generate short-lived token (5 min) for EMRScan.exe
+    @GetMapping("/scan/token")
+    public ResponseEntity<?> getScanToken(jakarta.servlet.http.HttpServletRequest req) {
+        String userId = (String) req.getAttribute("userId");
+        String auth   = (String) req.getAttribute("auth");
+        String name   = (String) req.getAttribute("name");
+        try {
+            String token = emrService.generateScanToken(userId, auth, name);
+            return ResponseEntity.ok(Map.of("token", token));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    // POST /api/scan/complete — called by EMRScan.exe after confirm
+    @PostMapping("/scan/complete")
+    public ResponseEntity<?> scanComplete(@RequestBody Map<String,String> b) {
+        try {
+            String treatNo  = b.get("treatNo");
+            String formCode = b.get("formCode");
+            String userId   = b.get("userId");
+            emrService.notifyScanComplete(treatNo, formCode, userId);
+            return ResponseEntity.ok(Map.of("success", true));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    // GET /api/scan/status — polling endpoint for web frontend
+    @GetMapping("/scan/status")
+    public ResponseEntity<?> getScanStatus(
+            @RequestParam(required=false) String treatNo,
+            @RequestParam(required=false) String formCode) {
+        try {
+            return ResponseEntity.ok(emrService.getScanStatus(treatNo, formCode));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    // GET /api/scan/verify — called by EMRScan.exe to validate short-lived token
+    @GetMapping("/scan/verify")
+    public ResponseEntity<?> verifyScanToken(@RequestParam String token) {
+        try {
+            Map<String,Object> info = emrService.verifyScanToken(token);
+            if (info == null) return ResponseEntity.status(401).body(Map.of("error","Invalid or expired token"));
+            return ResponseEntity.ok(info);
+        } catch (Exception e) {
+            return ResponseEntity.status(401).body(Map.of("error", e.getMessage()));
+        }
     }
 
     private MediaType resolveMediaType(String ext) {
