@@ -12,10 +12,10 @@
     </parent>
 
     <groupId>com.emr</groupId>
-    <artifactId>emr-demo</artifactId>
+    <artifactId>emr-backend</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>EMR Demo</name>
-    <description>EMR Document Scan and Viewer Demo</description>
+    <name>EMR</name>
+    <description>EMR Document Scan and Viewer</description>
 
     <properties>
         <java.version>17</java.version>

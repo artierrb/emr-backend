@@ -1,4 +1,6 @@
-# EMR Demo — Setup Guide
+## ไอเดียทุกอย่าง จะมาเมมไว้ในนี้ กันลืม
+
+# EMR Demo — Setup Guide 
 
 ## Prerequisites
 
@@ -82,21 +84,13 @@ F:\A.Work\My Project\EMR Project\EMRIMAGE\
 
 ---
 
-## API Endpoints (สำหรับ dev reference)
+## ระบบ login admin check password plain text ได้ user เดียว เพราะ
+1. interface usert,treatt,patientt ผ่าน store procedure แนวคิดคือ ทำเพื่อรองรับ โรงที่ซื้อ Lite version = โปรแกรมแยกจาก HIS
+จะได้แก้ที่ store procedure ไม่ต้องแก้โปรแกรม
+2. ตอน interface มา password มัน encrypt ด้วย cryptograph vb6 พอมาฝั่ง java มันใช้วิธีถอดรหัสไม่เหมือนกัน และทำให้เหมือนไม่ได้ ถึงแม้จะใช้ cryptograph เหมือนกัน
+จึงต้องมีประตูให้ admin เข้าได้ก่อนรอบนึง ปิด-เปิด ได้จาก config ให้ admin พาสเป็น plain text ได้ ละค่อยเปลี่ยนผ่านโปรแกรม ละไปปิด config ด้วย
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/` | หน้าหลัก |
-| GET | `/api/treatments?hn=XXXXX` | ดึงรายการ treat ของ HN |
-| GET | `/api/chartpages/{treatNo}` | ดึงรายการภาพของ treat |
-| GET | `/api/image/{pageNo}?ext=jpg` | Serve ไฟล์ภาพ |
-| POST | `/api/scan/upload` | อัปโหลด scan ใหม่ |
-| GET | `/api/forms` | ดึงรายการฟอร์ม |
+## user panel, scan ใช้ได้แค่ user ที่ AUTH = 3 นอกนั้นดูได้แค่ viewer
+## user managerment, form management, programconfig  เริ่มหน้าแรกมา ให้แสดง top 100
+## detail master index = dtldspseq
 
----
-
-## Note สำหรับ Demo
-
-- `CLASS = 'S'` ใน TREATT หมายถึง standalone record ที่สร้างจากโปรแกรมนี้
-- ถ้า HN+วันที่เดิม scan เพิ่ม จะ reuse TREATNO เดิม ไม่สร้างซ้ำ
-- PAGENO ที่ได้จาก identity = ชื่อไฟล์ด้วย
