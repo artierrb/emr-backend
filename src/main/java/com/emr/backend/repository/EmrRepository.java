@@ -163,55 +163,44 @@ public class EmrRepository {
     }
 
     // ─── OCR Print ────────────────────────────────────────────────
-    //20260615 Arty add case each type
-    public List<Map<String, Object>> getOcrPrintSetup(String inputGubun, String loginUserId, String loginClinic) {
 
+    public List<Map<String, Object>> getOcrPrintSetup(String inputGubun, String loginUserId, String loginClinic) {
         String sql;
         Object[] params;
 
         switch (inputGubun) {
-            case "D":
+            case "D" -> {
                 sql = """
-            SELECT DISTINCT s.FORMCODE, f.NAME AS FORMNAME,
-                   s.INPUTGUBUN, s.SETUPNAME, s.SEQ
-            FROM OCRPRINTSETUPT s
-            JOIN FORMT f ON f.FORMCODE = s.FORMCODE
-            WHERE ISNULL(s.USEYN,'Y')='Y'
-              AND s.INPUTGUBUN='D'
-              AND s.SETUPNAME=?
-            ORDER BY s.SEQ, s.FORMCODE
-            """;
-                params = new Object[]{loginClinic};
-                break;
-
-            case "U":
+                    SELECT DISTINCT s.FORMCODE, f.NAME AS FORMNAME, s.INPUTGUBUN, s.SETUPNAME, s.SEQ
+                    FROM OCRPRINTSETUPT s
+                    JOIN FORMT f ON f.FORMCODE = s.FORMCODE
+                    WHERE ISNULL(s.USEYN,'Y')='Y' AND s.INPUTGUBUN='D' AND s.SETUPNAME=?
+                    ORDER BY s.SEQ, s.FORMCODE
+                    """;
+                params = new Object[]{ loginClinic };
+            }
+            case "U" -> {
                 sql = """
-            SELECT DISTINCT s.FORMCODE, f.NAME AS FORMNAME,
-                   s.INPUTGUBUN, s.SETUPNAME, s.SEQ
-            FROM OCRPRINTSETUPT s
-            JOIN FORMT f ON f.FORMCODE = s.FORMCODE
-            WHERE ISNULL(s.USEYN,'Y')='Y'
-              AND s.INPUTGUBUN='U'
-              AND s.SETUPNAME=?
-            ORDER BY s.SEQ, s.FORMCODE
-            """;
-                params = new Object[]{loginUserId};
-                break;
-
-            default:
+                    SELECT DISTINCT s.FORMCODE, f.NAME AS FORMNAME, s.INPUTGUBUN, s.SETUPNAME, s.SEQ
+                    FROM OCRPRINTSETUPT s
+                    JOIN FORMT f ON f.FORMCODE = s.FORMCODE
+                    WHERE ISNULL(s.USEYN,'Y')='Y' AND s.INPUTGUBUN='U' AND s.SETUPNAME=?
+                    ORDER BY s.SEQ, s.FORMCODE
+                    """;
+                params = new Object[]{ loginUserId };
+            }
+            default -> {
                 sql = """
-                        SELECT DISTINCT f.FORMCODE, f.NAME AS FORMNAME,
-                                                  NULL AS INPUTGUBUN, NULL AS SETUPNAME, NULL AS SEQ
-                                           FROM FORMT f
-                                           WHERE ISNULL(f.ACTIVE,'0')='1'
-                                           ORDER BY f.FORMCODE
-            """;
+                    SELECT DISTINCT f.FORMCODE, f.NAME AS FORMNAME
+                    FROM FORMT f
+                    WHERE ISNULL(f.PRINTYN,'Y')='Y'
+                    ORDER BY f.FORMCODE
+                    """;
                 params = new Object[]{};
-                break;
+            }
         }
 
         return jdbc.queryForList(sql, params);
-
     }
 
     public boolean checkReprint(String ocmNum, String formCode) {
@@ -628,6 +617,35 @@ public class EmrRepository {
     }
 
     // อ่าน config เปิด/ปิด IP whitelist: '[HSPCFG]','IPWHITELST' → Y=เปิด N=ปิด
+    // ─── Watermark config ([HSPCFG]) ─────────────────────────────
+
+    // WTRMRKYN: 'Y'=เปิด watermark ตอนพิมพ์, อื่นๆ=ปิด
+    public String getWatermarkFlag() {
+        try {
+            return jdbc.queryForObject(
+                    "SELECT ISNULL(DtlCodVal,'N') FROM IMGEMR.dbo.DtlMst WHERE DtlTblCod='[HSPCFG]' AND DtlCod='WTRMRKYN'",
+                    String.class);
+        } catch (Exception e) { return "N"; }
+    }
+
+    // WTRMRKPTH: path ไฟล์ watermark บน server (เช่น C:\emr\watermark.png)
+    public String getWatermarkPath() {
+        try {
+            return jdbc.queryForObject(
+                    "SELECT ISNULL(DtlCodVal,'') FROM IMGEMR.dbo.DtlMst WHERE DtlTblCod='[HSPCFG]' AND DtlCod='WTRMRKPTH'",
+                    String.class);
+        } catch (Exception e) { return ""; }
+    }
+
+    // WTRMRKOVL: ความโปร่งใส watermark เป็นเปอร์เซ็นต์ เช่น 20 (= opacity 0.20)
+    public String getWatermarkOverlay() {
+        try {
+            return jdbc.queryForObject(
+                    "SELECT ISNULL(DtlCodVal,'') FROM IMGEMR.dbo.DtlMst WHERE DtlTblCod='[HSPCFG]' AND DtlCod='WTRMRKOVL'",
+                    String.class);
+        } catch (Exception e) { return ""; }
+    }
+
     public String getIpWhitelistFlag() {
         try {
             return jdbc.queryForObject(
@@ -967,13 +985,13 @@ public class EmrRepository {
         return jdbc.queryForList(
                 "SELECT GRPCODE, NAME FROM GRPFORMT ORDER BY ORDERBY, NAME");
     }
-    //20260615 Arty add ,CLASS,GUBUN,DBLFACE,OLDGUBUN
+
     public void insertForm(String formCode, String name, String grpCode, String active,
                            String ocrYn, String mediYn, String ocrPrint, int pageCount,
                            String followYn, String printYn) {
         jdbc.update(
-                "INSERT INTO FORMT(FORMCODE,NAME,GRPCODE,ACTIVE,OCRYN,MEDIYN,OCRPRINT,PAGECOUNT,FOLLOWYN,PRINTYN,CLASS,GUBUN,DBLFACE,OLDGUBUN,ORDERBY) " +
-                        "VALUES(?,?,?,?,?,?,?,?,?,?,'M','1','0','0',(SELECT ISNULL(MAX(CAST(ORDERBY AS INT)),0)+1 FROM FORMT))",
+                "INSERT INTO FORMT(FORMCODE,NAME,GRPCODE,ACTIVE,OCRYN,MEDIYN,OCRPRINT,PAGECOUNT,FOLLOWYN,PRINTYN,ORDERBY) " +
+                        "VALUES(?,?,?,?,?,?,?,?,?,?,(SELECT ISNULL(MAX(CAST(ORDERBY AS INT)),0)+1 FROM FORMT))",
                 formCode.trim(), name, grpCode, active, ocrYn, mediYn, ocrPrint, pageCount, followYn, printYn);
     }
 

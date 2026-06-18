@@ -247,6 +247,66 @@ public class EmrService {
         return fileService.readFile(pageNo, ext);
     }
 
+    // signature (lastModified+size) สำหรับทำ ETag — ไม่ต้องอ่านทั้งไฟล์
+    public String getImageSignature(long pageNo, String ext) throws IOException {
+        return fileService.getFileSignature(pageNo, ext);
+    }
+
+    // thumbnail (resize ~240px) — ถ้า resize ไม่ได้ (เช่น tiff) controller จะ fallback ภาพเต็ม
+    public byte[] getThumbnailBytes(long pageNo, String ext) throws IOException {
+        return fileService.readThumbnail(pageNo, ext);
+    }
+
+    // ภาพเต็มขนาดแปลงเป็น JPEG — สำหรับ viewer zoom ที่ต้องแสดง TIFF บน Chrome/Edge
+    public byte[] getImageAsJpeg(long pageNo, String ext) throws IOException {
+        return fileService.readAsJpeg(pageNo, ext);
+    }
+
+    // ─── Watermark ────────────────────────────────────────────
+
+    // คืน config watermark สำหรับ frontend: enabled + opacity (0..1)
+    public Map<String, Object> getWatermarkConfig() {
+        String flag = repo.getWatermarkFlag();
+        boolean enabled = "Y".equalsIgnoreCase(flag == null ? "N" : flag.trim());
+        // opacity: WTRMRKOVL เก็บเป็น % (เช่น 20) → 0.20 ; ถ้าว่าง/ผิด default 0.20
+        double opacity = 0.20;
+        try {
+            String ovl = repo.getWatermarkOverlay();
+            if (ovl != null && !ovl.trim().isEmpty()) {
+                double v = Double.parseDouble(ovl.trim());
+                if (v > 1.0) v = v / 100.0;          // ถ้าเป็น % (20) → 0.20
+                if (v < 0) v = 0; if (v > 1) v = 1;  // clamp 0..1
+                opacity = v;
+            }
+        } catch (Exception ignored) {}
+        return Map.of("enabled", enabled, "opacity", opacity);
+    }
+
+    // อ่านไฟล์ watermark จาก WTRMRKPTH (server path) — รองรับ jpg/png
+    // คืน null ถ้าปิด/ไม่มี path/ไฟล์ไม่เจอ → controller ตอบ 404
+    public byte[] getWatermarkBytes() throws IOException {
+        String flag = repo.getWatermarkFlag();
+        if (!"Y".equalsIgnoreCase(flag == null ? "N" : flag.trim())) return null;
+        String path = repo.getWatermarkPath();
+        if (path == null || path.trim().isEmpty()) return null;
+        java.io.File f = new java.io.File(path.trim());
+        if (!f.exists() || !f.isFile()) {
+            log.warn("Watermark file not found: {}", path);
+            return null;
+        }
+        return java.nio.file.Files.readAllBytes(f.toPath());
+    }
+
+    // เดา content-type จากนามสกุลไฟล์ watermark
+    public String getWatermarkContentType() {
+        String path = repo.getWatermarkPath();
+        if (path == null) return "image/png";
+        String p = path.trim().toLowerCase();
+        if (p.endsWith(".jpg") || p.endsWith(".jpeg")) return "image/jpeg";
+        if (p.endsWith(".gif")) return "image/gif";
+        return "image/png";   // default png
+    }
+
     // ─── Config ───────────────────────────────────────────────
 
     public List<Map<String, Object>> getConfig(String search) { return repo.getConfig(search); }

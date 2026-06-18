@@ -38,10 +38,10 @@ public class ApiController {
     public ResponseEntity<?> insertTreatment(@RequestBody Map<String,String> b) {
         try {
             long treatNo = emrService.insertTreatmentFull(
-                    b.get("patId"), b.get("inDate"), b.get("clinCode"),
-                    b.getOrDefault("docCode",""), b.get("classType"),
-                    b.getOrDefault("vstNum",""), b.getOrDefault("admNum",""),
-                    b.getOrDefault("userId","DEMO")
+                b.get("patId"), b.get("inDate"), b.get("clinCode"),
+                b.getOrDefault("docCode",""), b.get("classType"),
+                b.getOrDefault("vstNum",""), b.getOrDefault("admNum",""),
+                b.getOrDefault("userId","DEMO")
             );
             return ResponseEntity.ok(Map.of("success", true, "treatNo", treatNo));
         } catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
@@ -146,7 +146,7 @@ public class ApiController {
 
     @GetMapping("/viewer/pages")
     public ResponseEntity<?> getViewerPages(@RequestParam String hn, @RequestParam String formCode,
-                                            @RequestParam(defaultValue="ALL") String classFilter) {
+            @RequestParam(defaultValue="ALL") String classFilter) {
         try { return ResponseEntity.ok(emrService.getViewerPages(hn, formCode, classFilter)); }
         catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
     }
@@ -167,10 +167,10 @@ public class ApiController {
     public ResponseEntity<?> updateTreatCheck(@RequestBody Map<String,String> b) {
         try {
             emrService.updateTreatCheck(
-                    Long.parseLong(b.get("treatNo")),
-                    Integer.parseInt(b.get("checkNo")),
-                    b.get("value"),
-                    b.getOrDefault("userId", "DEMO")
+                Long.parseLong(b.get("treatNo")),
+                Integer.parseInt(b.get("checkNo")),
+                b.get("value"),
+                b.getOrDefault("userId", "DEMO")
             );
             return ResponseEntity.ok(Map.of("success", true));
         } catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
@@ -220,18 +220,86 @@ public class ApiController {
 
     @GetMapping("/image/{pageNo}")
     public ResponseEntity<byte[]> getImage(@PathVariable long pageNo,
-                                           @RequestParam(defaultValue = "jpg") String ext) {
+                                           @RequestParam(defaultValue = "jpg") String ext,
+                                           @RequestParam(defaultValue = "0") String thumb,
+                                           @RequestParam(defaultValue = "") String fmt,
+                                           @RequestHeader(value = "If-None-Match", required = false) String ifNoneMatch) {
+        boolean wantThumb = "1".equals(thumb) || "true".equalsIgnoreCase(thumb);
+        boolean wantJpeg  = "jpg".equalsIgnoreCase(fmt) || "jpeg".equalsIgnoreCase(fmt);
         try {
-            byte[] bytes = emrService.getImageBytes(pageNo, ext);
-            MediaType mediaType = resolveMediaType(ext);
+            // ETag จาก lastModified+size ของไฟล์ต้นฉบับ (re-scan ทับ → เปลี่ยน → โหลดใหม่)
+            // suffix แยก cache: -t (thumbnail), -j (full jpeg), ภาพเต็มต้นฉบับไม่มี suffix
+            String sig = emrService.getImageSignature(pageNo, ext);
+            String variant = wantThumb ? "-t" : (wantJpeg ? "-j" : "");
+            String etag = "\"" + sig + variant + "\"";
+
+            // ถ้า client cache ตรง → 304 ไม่ต้องอ่าน/แปลง/ส่ง byte ซ้ำ
+            if (etag.equals(ifNoneMatch)) {
+                return ResponseEntity.status(HttpStatus.NOT_MODIFIED)
+                        .eTag(etag)
+                        .cacheControl(org.springframework.http.CacheControl.noCache())
+                        .build();
+            }
+
+            byte[] bytes;
+            MediaType mediaType;
+            if (wantThumb) {
+                try {
+                    bytes = emrService.getThumbnailBytes(pageNo, ext);
+                    mediaType = MediaType.IMAGE_JPEG;   // thumbnail เป็น jpeg เสมอ
+                } catch (Exception thumbErr) {
+                    log.warn("Thumbnail failed pageNo={} ext={} → fallback full image: {}", pageNo, ext, thumbErr.getMessage());
+                    bytes = emrService.getImageBytes(pageNo, ext);
+                    mediaType = resolveMediaType(ext);
+                }
+            } else if (wantJpeg) {
+                // viewer zoom — แปลงเป็น jpeg เต็มขนาด (รองรับ tiff ที่ Chrome แสดงไม่ได้)
+                try {
+                    bytes = emrService.getImageAsJpeg(pageNo, ext);
+                    mediaType = MediaType.IMAGE_JPEG;
+                } catch (Exception jpgErr) {
+                    log.warn("JPEG convert failed pageNo={} ext={} → fallback original: {}", pageNo, ext, jpgErr.getMessage());
+                    bytes = emrService.getImageBytes(pageNo, ext);
+                    mediaType = resolveMediaType(ext);
+                }
+            } else {
+                bytes = emrService.getImageBytes(pageNo, ext);
+                mediaType = resolveMediaType(ext);
+            }
+
             return ResponseEntity.ok()
                     .contentType(mediaType)
-                    .header(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, must-revalidate")
-                    .header("Pragma", "no-cache")
-                    .header("Expires", "0")
+                    .eTag(etag)
+                    // no-cache = ต้อง revalidate ทุกครั้ง แต่ถ้าไฟล์ไม่เปลี่ยน → 304 (ไม่โหลด byte ซ้ำ)
+                    .cacheControl(org.springframework.http.CacheControl.noCache())
                     .body(bytes);
         } catch (IOException e) {
             log.warn("Image not found: pageNo={} ext={}", pageNo, ext);
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    // ─── Watermark ────────────────────────────────────────────────
+
+    // config สำหรับ frontend — เปิด/ปิด + opacity
+    @GetMapping("/watermark/config")
+    public ResponseEntity<?> getWatermarkConfig() {
+        try { return ResponseEntity.ok(emrService.getWatermarkConfig()); }
+        catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    // ไฟล์ watermark — อ่านจาก server path (WTRMRKPTH), รองรับ jpg/png
+    @GetMapping("/watermark/image")
+    public ResponseEntity<byte[]> getWatermarkImage() {
+        try {
+            byte[] bytes = emrService.getWatermarkBytes();
+            if (bytes == null) return ResponseEntity.notFound().build();
+            MediaType mt = MediaType.valueOf(emrService.getWatermarkContentType());
+            return ResponseEntity.ok()
+                    .contentType(mt)
+                    .cacheControl(org.springframework.http.CacheControl.noCache())
+                    .body(bytes);
+        } catch (Exception e) {
             return ResponseEntity.notFound().build();
         }
     }
@@ -370,7 +438,7 @@ public class ApiController {
     }
     @PostMapping("/master/dtlmst/reorder")
     public ResponseEntity<?> reorderDtlMst(@RequestParam String dtlTblCod,
-                                           @RequestBody java.util.List<java.util.Map<String,String>> items) {
+                                            @RequestBody java.util.List<java.util.Map<String,String>> items) {
         try { emrService.reorderDtlMst(dtlTblCod,items); return ResponseEntity.ok(Map.of("success",true)); }
         catch(Exception e) { return ResponseEntity.status(500).body(Map.of("error",e.getMessage())); }
     }
@@ -402,7 +470,7 @@ public class ApiController {
     }
     @PostMapping("/master/dtsmst/reorder")
     public ResponseEntity<?> reorderDtsMst(@RequestParam String dtsTblCod, @RequestParam String dtsCod,
-                                           @RequestBody java.util.List<java.util.Map<String,String>> items) {
+                                            @RequestBody java.util.List<java.util.Map<String,String>> items) {
         try { emrService.reorderDtsMst(dtsTblCod,dtsCod,items); return ResponseEntity.ok(Map.of("success",true)); }
         catch(Exception e) { return ResponseEntity.status(500).body(Map.of("error",e.getMessage())); }
     }
