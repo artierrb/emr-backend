@@ -750,4 +750,67 @@ public class EmrService {
         repo.updateOcrReturnMemo(ocrPk, bigo);
     }
 
+    // ─── PrintNeed (request ขอพิมพ์) ──────────────────────────────
+
+    // อ่าน AUTH ของ user จาก USERT (ใช้เช็คว่า auth='3' พิมพ์ได้เลยไหม)
+    public String getUserAuth(String userId) {
+        Map<String, Object> user = repo.findUserById(userId);
+        if (user == null) return "";
+        Object a = user.get("AUTH");
+        return a == null ? "" : a.toString().trim();
+    }
+
+    // เตรียมข้อมูลตอนกด print: หา treatNo จาก pageNo + เช็คว่ามี request ค้างไหม
+    // คืน { treatNo, patId, hasRequest }
+    public Map<String, Object> checkPrintNeed(long pageNo) {
+        Long treatNo = repo.findTreatNoByPageNo(pageNo);
+        if (treatNo == null) {
+            return Map.of("error", "ไม่พบ TREATNO ของ PAGENO นี้");
+        }
+        String patId = repo.findPatIdByTreatNo(treatNo);
+        boolean has = repo.hasPrintNeed(treatNo, pageNo);
+        java.util.Map<String, Object> m = new java.util.HashMap<>();
+        m.put("treatNo", treatNo);
+        m.put("patId", patId == null ? "" : patId);
+        m.put("hasRequest", has);
+        return m;
+    }
+
+    public List<Map<String, Object>> getPrintReasons() {
+        return repo.getPrintReasons();
+    }
+
+    public List<Map<String, Object>> getAllClinics() {
+        return repo.getAllClinics();
+    }
+
+    // บันทึก request พิมพ์ — เช็คซ้ำอีกชั้นก่อน insert (กัน race)
+    // คืน true=insert สำเร็จ, false=มี request ค้างแล้ว
+    public boolean registerPrintNeed(long pageNo, String printCode, String cUserId, String needClin) {
+        Long treatNo = repo.findTreatNoByPageNo(pageNo);
+        if (treatNo == null) throw new RuntimeException("ไม่พบ TREATNO ของ PAGENO นี้");
+        if (repo.hasPrintNeed(treatNo, pageNo)) return false;   // มีแล้ว
+        String cDate = java.time.LocalDate.now().format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd"));
+        repo.insertPrintNeed(pageNo, printCode, cDate, cUserId, treatNo, needClin);
+        return true;
+    }
+
+    // ─── PrintNeed admin ──────────────────────────────────────────
+
+    public List<Map<String, Object>> searchPrintNeed(String patId, String patName,
+                                                     String dateFrom, String dateTo,
+                                                     String needClin, String printed) {
+        return repo.searchPrintNeed(patId, patName, dateFrom, dateTo, needClin, printed);
+    }
+
+    // Confirm กดได้ตลอด → คืน true เสมอถ้า update โดน row
+    public boolean confirmPrintNeed(long seq) {
+        return repo.confirmPrintNeed(seq) > 0;
+    }
+
+    // Cancel เฉพาะ NEEDCANCLE='N' → false ถ้าถูก cancel ไปแล้ว
+    public boolean cancelPrintNeed(long seq) {
+        return repo.cancelPrintNeed(seq) > 0;
+    }
+
 }

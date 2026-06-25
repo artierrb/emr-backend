@@ -171,31 +171,31 @@ public class EmrRepository {
         switch (inputGubun) {
             case "D" -> {
                 sql = """
-                    SELECT DISTINCT s.FORMCODE, f.NAME AS FORMNAME, s.INPUTGUBUN, s.SETUPNAME, s.SEQ
-                    FROM OCRPRINTSETUPT s
-                    JOIN FORMT f ON f.FORMCODE = s.FORMCODE
-                    WHERE ISNULL(s.USEYN,'Y')='Y' AND s.INPUTGUBUN='D' AND s.SETUPNAME=?
-                    ORDER BY s.SEQ, s.FORMCODE
-                    """;
+                SELECT DISTINCT s.FORMCODE, f.NAME AS FORMNAME, s.INPUTGUBUN, s.SETUPNAME, s.SEQ
+                FROM OCRPRINTSETUPT s
+                JOIN FORMT f ON f.FORMCODE = s.FORMCODE
+                WHERE ISNULL(s.USEYN,'Y')='Y' AND s.INPUTGUBUN='D' AND s.SETUPNAME=?
+                ORDER BY s.SEQ, s.FORMCODE
+                """;
                 params = new Object[]{ loginClinic };
             }
             case "U" -> {
                 sql = """
-                    SELECT DISTINCT s.FORMCODE, f.NAME AS FORMNAME, s.INPUTGUBUN, s.SETUPNAME, s.SEQ
-                    FROM OCRPRINTSETUPT s
-                    JOIN FORMT f ON f.FORMCODE = s.FORMCODE
-                    WHERE ISNULL(s.USEYN,'Y')='Y' AND s.INPUTGUBUN='U' AND s.SETUPNAME=?
-                    ORDER BY s.SEQ, s.FORMCODE
-                    """;
+                SELECT DISTINCT s.FORMCODE, f.NAME AS FORMNAME, s.INPUTGUBUN, s.SETUPNAME, s.SEQ
+                FROM OCRPRINTSETUPT s
+                JOIN FORMT f ON f.FORMCODE = s.FORMCODE
+                WHERE ISNULL(s.USEYN,'Y')='Y' AND s.INPUTGUBUN='U' AND s.SETUPNAME=?
+                ORDER BY s.SEQ, s.FORMCODE
+                """;
                 params = new Object[]{ loginUserId };
             }
             default -> {
                 sql = """
-                    SELECT DISTINCT f.FORMCODE, f.NAME AS FORMNAME
-                    FROM FORMT f
-                    WHERE ISNULL(f.PRINTYN,'Y')='Y'
-                    ORDER BY f.FORMCODE
-                    """;
+                SELECT DISTINCT f.FORMCODE, f.NAME AS FORMNAME
+                FROM FORMT f
+                WHERE ISNULL(f.PRINTYN,'Y')='Y'
+                ORDER BY f.FORMCODE
+                """;
                 params = new Object[]{};
             }
         }
@@ -927,6 +927,143 @@ public class EmrRepository {
                 "UPDATE RENTT SET RENTYN='Y', AGREENO=?, BANNABDATE=GETDATE() " +
                         "WHERE RENTNO=? AND ISNULL(RENTYN,'N')='N'",
                 nextAgree, rentNo);
+    }
+
+    // ─── PrintNeed (request ขอพิมพ์เอกสาร) ───────────────────────
+
+    // หา TREATNO จาก PAGENO (PAGENO unique) ผ่าน CHARTPAGET
+    public Long findTreatNoByPageNo(long pageNo) {
+        try {
+            return jdbc.queryForObject(
+                    "SELECT TOP 1 TREATNO FROM CHARTPAGET WHERE PAGENO=?", Long.class, pageNo);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // หา PATID จาก TREATNO (เอาไป fill HN ใน modal)
+    public String findPatIdByTreatNo(long treatNo) {
+        try {
+            return jdbc.queryForObject(
+                    "SELECT RTRIM(LTRIM(PATID)) FROM TREATT WHERE TREATNO=?", String.class, treatNo);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    // เช็คว่ามี request พิมพ์ค้างอยู่แล้วไหม (TREATNO+PAGENO, PRINTED='N')
+    public boolean hasPrintNeed(long treatNo, long pageNo) {
+        try {
+            Integer cnt = jdbc.queryForObject(
+                    "SELECT COUNT(1) FROM PRINTNEEDT WHERE TREATNO=? AND PAGENO=? AND PRINTED='N'",
+                    Integer.class, treatNo, pageNo);
+            return cnt != null && cnt > 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // dropdown เหตุผลพิมพ์: PRNRSN
+    public List<Map<String, Object>> getPrintReasons() {
+        return jdbc.queryForList(
+                "SELECT DtlCod, DtlCodNam FROM IMGEMR.dbo.DtlMst WHERE DtlTblCod='PRNRSN' ORDER BY DtlDspSeq");
+    }
+
+    // dropdown คลินิก — แสดงทั้งหมด (ไม่ filter active)
+    public List<Map<String, Object>> getAllClinics() {
+        return jdbc.queryForList(
+                "SELECT CLINCODE, NAME FROM CLINICT ORDER BY NAME");
+    }
+
+    // insert PRINTNEEDT (request พิมพ์)
+    //   PRINTED='N', NEEDCNT=0, NEEDCANCLE='N', NEEDUSERID='', SEQ_PRINTNEED=MAX+1
+    //   CDATE = วันนี้ yyyyMMdd (varchar 8)
+    public void insertPrintNeed(long pageNo, String printCode, String cDate, String cUserId,
+                                long treatNo, String needClin) {
+        Long nextSeq = jdbc.queryForObject(
+                "SELECT ISNULL(MAX(SEQ_PRINTNEED),0)+1 FROM PRINTNEEDT", Long.class);
+        jdbc.update(
+                "INSERT INTO PRINTNEEDT(PAGENO,PRINTCODE,CDATE,CUSERID,TREATNO,PRINTED,NEEDCNT," +
+                        "NEEDCANCLE,NEEDUSERID,SEQ_PRINTNEED,NEEDCLIN) " +
+                        "VALUES(?,?,?,?,?,'N','0','N','',?,?)",
+                pageNo, printCode, cDate, cUserId, treatNo, nextSeq, needClin);
+    }
+
+    // ─── PrintNeed admin (search/confirm/cancel) ─────────────────
+
+    // list หน้า PrintNeed — filter: HN / patName / ช่วง CDATE / NEEDCLIN / PRINTED
+    public List<Map<String, Object>> searchPrintNeed(String patId, String patName,
+                                                     String dateFrom, String dateTo,
+                                                     String needClin, String printed) {
+        StringBuilder sql = new StringBuilder(
+                "SELECT N.SEQ_PRINTNEED AS SEQ, " +
+                        "  N.PAGENO AS PAGENO, " +
+                        "  ISNULL(PG.EXTENSION,'jpg') AS EXTENSION, " +
+                        "  RTRIM(LTRIM(T.PATID)) AS PATID, " +
+                        "  RTRIM(ISNULL(P.NAME,'')) AS PATNAME, " +
+                        "  RTRIM(ISNULL(N.CUSERID,'')) AS CUSERID, " +
+                        "  RTRIM(ISNULL(N.PRINTCODE,'')) AS PRINTCODE, " +
+                        "  RTRIM(ISNULL(D.DtlCodNam,'')) AS PRINTTYPE, " +
+                        "  ISNULL(N.CDATE,'') AS CDATE, " +
+                        "  ISNULL(N.NEEDCNT,'0') AS NEEDCNT, " +
+                        "  ISNULL(N.PRINTED,'N') AS PRINTED, " +
+                        "  ISNULL(N.NEEDCANCLE,'N') AS NEEDCANCLE, " +
+                        "  RTRIM(ISNULL(N.NEEDCLIN,'')) AS NEEDCLIN, " +
+                        "  RTRIM(ISNULL(CL.NAME,'')) AS CLINNAME " +
+                        "FROM PRINTNEEDT N " +
+                        "JOIN CHARTPAGET C ON N.PAGENO = C.PAGENO " +
+                        "JOIN TREATT T ON C.TREATNO = T.TREATNO " +
+                        "LEFT JOIN PAGET PG ON PG.PAGENO = N.PAGENO " +
+                        "LEFT JOIN PATIENTT P ON RTRIM(LTRIM(T.PATID)) = RTRIM(LTRIM(P.PATID)) " +
+                        "LEFT JOIN CLINICT CL ON RTRIM(N.NEEDCLIN) = RTRIM(CL.CLINCODE) " +
+                        "LEFT JOIN IMGEMR.dbo.DtlMst D ON D.DtlTblCod='PRNRSN' AND RTRIM(D.DtlCod)=RTRIM(N.PRINTCODE) " +
+                        "WHERE 1=1 ");
+        List<Object> args = new java.util.ArrayList<>();
+
+        if (patId != null && !patId.trim().isEmpty()) {
+            sql.append("AND RTRIM(LTRIM(T.PATID))=RTRIM(LTRIM(?)) ");
+            args.add(patId);
+        }
+        if (patName != null && !patName.trim().isEmpty()) {
+            sql.append("AND P.NAME LIKE ? ");
+            args.add("%" + patName.trim() + "%");
+        }
+        if (dateFrom != null && !dateFrom.isEmpty()) {
+            sql.append("AND N.CDATE >= ? ");
+            args.add(dateFrom.replace("-", ""));   // CDATE varchar yyyyMMdd
+        }
+        if (dateTo != null && !dateTo.isEmpty()) {
+            sql.append("AND N.CDATE <= ? ");
+            args.add(dateTo.replace("-", ""));
+        }
+        if (needClin != null && !needClin.trim().isEmpty() && !"ALL".equalsIgnoreCase(needClin)) {
+            sql.append("AND RTRIM(N.NEEDCLIN)=RTRIM(?) ");
+            args.add(needClin);
+        }
+        if (printed != null && !printed.trim().isEmpty() && !"ALL".equalsIgnoreCase(printed)) {
+            sql.append("AND ISNULL(N.PRINTED,'N')=? ");
+            args.add(printed);
+        }
+        sql.append("ORDER BY N.SEQ_PRINTNEED");
+        return jdbc.queryForList(sql.toString(), args.toArray());
+    }
+
+    // Confirm — set PRINTED='Y', NEEDCNT+1 (กดได้ตลอด, ทุกครั้ง +1)
+    //   NEEDCNT เป็น varchar → CAST เป็น int +1 แล้วเก็บกลับเป็น string
+    public int confirmPrintNeed(long seq) {
+        return jdbc.update(
+                "UPDATE PRINTNEEDT SET PRINTED='Y', " +
+                        "  NEEDCNT = CAST(ISNULL(TRY_CAST(NEEDCNT AS INT),0)+1 AS VARCHAR(10)) " +
+                        "WHERE SEQ_PRINTNEED=?",
+                seq);
+    }
+
+    // Cancel — set NEEDCANCLE='Y' (เฉพาะ NEEDCANCLE='N')
+    public int cancelPrintNeed(long seq) {
+        return jdbc.update(
+                "UPDATE PRINTNEEDT SET NEEDCANCLE='Y' " +
+                        "WHERE SEQ_PRINTNEED=? AND ISNULL(NEEDCANCLE,'N')='N'",
+                seq);
     }
 
     // ─── PATIENTT ─────────────────────────────────────────────

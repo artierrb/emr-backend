@@ -660,6 +660,61 @@ public class ApiController {
     }
 
 
+    // ─── PrintNeed (request ขอพิมพ์เอกสาร) ────────────────────────
+
+    // เช็คตอนกด print: คืน auth ของ login user + (ถ้า auth!=3) treatNo/patId/hasRequest
+    @GetMapping("/printneed/check")
+    public ResponseEntity<?> checkPrintNeed(@RequestParam long pageNo,
+                                            jakarta.servlet.http.HttpServletRequest req) {
+        try {
+            String userId = (String) req.getAttribute("userId");
+            String auth = emrService.getUserAuth(userId);
+            java.util.Map<String, Object> result = new java.util.HashMap<>();
+            result.put("auth", auth);
+            // auth=3 พิมพ์ได้เลย ไม่ต้องเช็ค request
+            if (!"3".equals(auth)) {
+                result.putAll(emrService.checkPrintNeed(pageNo));
+            }
+            return ResponseEntity.ok(result);
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+    // dropdown เหตุผลพิมพ์ (PRNRSN)
+    @GetMapping("/printneed/reasons")
+    public ResponseEntity<?> getPrintReasons() {
+        try { return ResponseEntity.ok(emrService.getPrintReasons()); }
+        catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    // dropdown คลินิก (ทั้งหมด)
+    @GetMapping("/printneed/clinics")
+    public ResponseEntity<?> getPrintNeedClinics() {
+        try { return ResponseEntity.ok(emrService.getAllClinics()); }
+        catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    // บันทึก request พิมพ์
+    @PostMapping("/printneed/register")
+    public ResponseEntity<?> registerPrintNeed(@RequestBody Map<String, String> b,
+                                               jakarta.servlet.http.HttpServletRequest req) {
+        try {
+            String userId = (String) req.getAttribute("userId");
+            long pageNo = Long.parseLong(b.get("pageNo"));
+            String printCode = b.getOrDefault("printCode", "");
+            String needClin  = b.getOrDefault("needClin", "");
+            if (printCode.isBlank()) return ResponseEntity.badRequest().body(Map.of("error", "กรุณาเลือกเหตุผล"));
+
+            boolean ok = emrService.registerPrintNeed(pageNo, printCode, userId, needClin);
+            if (!ok) return ResponseEntity.status(409).body(Map.of("error", "มีการ request ขอปริ้นเอกสารแล้ว กรุณาติดต่อ Admin"));
+            return ResponseEntity.ok(Map.of("success", true));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+        }
+    }
+
+
     private MediaType resolveMediaType(String ext) {
         return switch (ext.toLowerCase()) {
             case "tif", "tiff" -> MediaType.valueOf("image/tiff");
