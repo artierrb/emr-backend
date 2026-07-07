@@ -171,36 +171,120 @@ public class EmrRepository {
         switch (inputGubun) {
             case "D" -> {
                 sql = """
-                SELECT DISTINCT s.FORMCODE, f.NAME AS FORMNAME, s.INPUTGUBUN, s.SETUPNAME, s.SEQ
+                SELECT DISTINCT s.FORMCODE, f.NAME AS FORMNAME, f.GRPCODE,
+                       ISNULL(g.NAME,'') AS GRPNAME, s.INPUTGUBUN, s.SETUPNAME, s.SEQ
                 FROM OCRPRINTSETUPT s
                 JOIN FORMT f ON f.FORMCODE = s.FORMCODE
+                LEFT JOIN GRPFORMT g ON g.GRPCODE = f.GRPCODE
                 WHERE ISNULL(s.USEYN,'Y')='Y' AND s.INPUTGUBUN='D' AND s.SETUPNAME=?
-                ORDER BY s.SEQ, s.FORMCODE
+                ORDER BY GRPNAME, s.SEQ, s.FORMCODE
                 """;
                 params = new Object[]{ loginClinic };
             }
             case "U" -> {
                 sql = """
-                SELECT DISTINCT s.FORMCODE, f.NAME AS FORMNAME, s.INPUTGUBUN, s.SETUPNAME, s.SEQ
+                SELECT DISTINCT s.FORMCODE, f.NAME AS FORMNAME, f.GRPCODE,
+                       ISNULL(g.NAME,'') AS GRPNAME, s.INPUTGUBUN, s.SETUPNAME, s.SEQ
                 FROM OCRPRINTSETUPT s
                 JOIN FORMT f ON f.FORMCODE = s.FORMCODE
+                LEFT JOIN GRPFORMT g ON g.GRPCODE = f.GRPCODE
                 WHERE ISNULL(s.USEYN,'Y')='Y' AND s.INPUTGUBUN='U' AND s.SETUPNAME=?
-                ORDER BY s.SEQ, s.FORMCODE
+                ORDER BY GRPNAME, s.SEQ, s.FORMCODE
                 """;
                 params = new Object[]{ loginUserId };
             }
             default -> {
                 sql = """
-                SELECT DISTINCT f.FORMCODE, f.NAME AS FORMNAME
+                SELECT DISTINCT f.FORMCODE, f.NAME AS FORMNAME, f.GRPCODE,
+                       ISNULL(g.NAME,'') AS GRPNAME
                 FROM FORMT f
+                LEFT JOIN GRPFORMT g ON g.GRPCODE = f.GRPCODE
                 WHERE ISNULL(f.PRINTYN,'Y')='Y'
-                ORDER BY f.FORMCODE
+                ORDER BY GRPNAME, f.FORMCODE
                 """;
                 params = new Object[]{};
             }
         }
 
         return jdbc.queryForList(sql, params);
+    }
+
+    // ── OCR Print (User/Dept tab) — modal เพิ่มเอกสาร ──────────────────
+    // รายการฟอร์มทั้งหมดที่พิมพ์ได้ (สำหรับ modal เลือกเอกสาร) — ใช้ร่วมกันทั้ง U และ D
+    public List<Map<String, Object>> getUserSetupFormOptions() {
+        String sql = """
+                SELECT DISTINCT f.FORMCODE, f.NAME AS FORMNAME,
+                       f.NAME + ' [' + f.FORMCODE + ']' AS DISPLAYNAME
+                FROM FORMT f
+                WHERE ISNULL(f.PRINTYN,'Y')='Y'
+                ORDER BY DISPLAYNAME
+                """;
+        return jdbc.queryForList(sql);
+    }
+
+    // FORMCODE ที่ setup USEYN='Y' ไว้แล้ว (ไว้ map checkbox = checked)
+    //  gubun='U' → setupName = loginUserId   (map ตาม CUSERID ด้วย)
+    //  gubun='D' → setupName = loginClinCode (map ตาม SETUPNAME เท่านั้น)
+    public List<String> getSetupCheckedForms(String inputGubun, String setupName) {
+        if ("D".equals(inputGubun)) {
+            return jdbc.queryForList(
+                    "SELECT DISTINCT FORMCODE FROM OCRPRINTSETUPT " +
+                            "WHERE INPUTGUBUN='D' AND SETUPNAME=? AND USEYN='Y'",
+                    String.class, setupName);
+        }
+        return jdbc.queryForList(
+                "SELECT DISTINCT FORMCODE FROM OCRPRINTSETUPT " +
+                        "WHERE INPUTGUBUN='U' AND SETUPNAME=? AND CUSERID=? AND USEYN='Y'",
+                String.class, setupName, setupName);
+    }
+
+    // toggle: checked=true → มีอยู่แล้ว update USEYN='Y' / ไม่มี insert;  checked=false → update USEYN='N'
+    //  CUSERID/UNCUSERID = loginUserId เสมอ (คนที่กด), DEPTCODE=''
+    //  gubun='U' → SETUPNAME = loginUserId,   scope check รวม CUSERID
+    //  gubun='D' → SETUPNAME = loginClinCode, scope check ตาม SETUPNAME
+    public void toggleSetupForm(String inputGubun, String setupName, String loginUserId,
+                                String formCode, boolean checked) {
+        boolean isDept = "D".equals(inputGubun);
+
+        Integer cnt = isDept
+                ? jdbc.queryForObject(
+                "SELECT COUNT(*) FROM OCRPRINTSETUPT " +
+                "WHERE INPUTGUBUN='D' AND SETUPNAME=? AND FORMCODE=?",
+                Integer.class, setupName, formCode)
+                : jdbc.queryForObject(
+                "SELECT COUNT(*) FROM OCRPRINTSETUPT " +
+                "WHERE INPUTGUBUN='U' AND SETUPNAME=? AND CUSERID=? AND FORMCODE=?",
+                Integer.class, setupName, setupName, formCode);
+        boolean exists = cnt != null && cnt > 0;
+
+        String yn = checked ? "Y" : "N";
+
+        if (exists) {
+            if (isDept) {
+                jdbc.update(
+                        "UPDATE OCRPRINTSETUPT SET USEYN=?, UNUSEDATE=GETDATE(), UNCUSERID=? " +
+                                "WHERE INPUTGUBUN='D' AND SETUPNAME=? AND FORMCODE=?",
+                        yn, loginUserId, setupName, formCode);
+            } else {
+                jdbc.update(
+                        "UPDATE OCRPRINTSETUPT SET USEYN=?, UNUSEDATE=GETDATE(), UNCUSERID=? " +
+                                "WHERE INPUTGUBUN='U' AND SETUPNAME=? AND CUSERID=? AND FORMCODE=?",
+                        yn, loginUserId, setupName, setupName, formCode);
+            }
+        } else if (checked) {
+            // insert เฉพาะตอน check (uncheck ที่ยังไม่มีแถว = ไม่ต้องทำอะไร)
+            String scopeGubun = isDept ? "D" : "U";
+            Integer maxSeq = jdbc.queryForObject(
+                    "SELECT ISNULL(MAX(CAST(SEQ AS INT)),0) FROM OCRPRINTSETUPT " +
+                            "WHERE INPUTGUBUN=? AND SETUPNAME=?",
+                    Integer.class, scopeGubun, setupName);
+            String seq = String.format("%04d", (maxSeq == null ? 0 : maxSeq) + 1);
+            jdbc.update(
+                    "INSERT INTO OCRPRINTSETUPT " +
+                            "(INPUTGUBUN, SETUPNAME, FORMCODE, SEQ, CDATE, CUSERID, USEYN, UNUSEDATE, UNCUSERID, DEPTCODE) " +
+                            "VALUES (?, ?, ?, ?, GETDATE(), ?, 'Y', GETDATE(), ?, '')",
+                    scopeGubun, setupName, formCode, seq, loginUserId, loginUserId);
+        }
     }
 
     public boolean checkReprint(String ocmNum, String formCode) {
@@ -534,6 +618,37 @@ public class EmrRepository {
                 seq, dtsTblCod, dtsCod, dtsSubCod);
     }
 
+    // ─── Master dup-check (เช็คซ้ำก่อน insert) ─────────────────
+    // Table: PK = TabCod ภายใน TabCodTyp เดียวกัน (trim + upper ให้ตรงกับตอน insert)
+    public boolean tabMstExists(String tabCodTyp, String tabCod) {
+        if (tabCod == null || tabCod.trim().isEmpty()) return false;
+        Integer cnt = jdbc.queryForObject(
+                "SELECT COUNT(1) FROM IMGEMR.dbo.TabMst " +
+                        "WHERE RTRIM(TabCodTyp)=? AND RTRIM(LTRIM(TabCod))=RTRIM(LTRIM(?))",
+                Integer.class, tabCodTyp, tabCod.trim().toUpperCase());
+        return cnt != null && cnt > 0;
+    }
+
+    // Detail: PK = DtlTblCod + DtlCod
+    public boolean dtlMstExists(String dtlTblCod, String dtlCod) {
+        if (dtlCod == null || dtlCod.trim().isEmpty()) return false;
+        Integer cnt = jdbc.queryForObject(
+                "SELECT COUNT(1) FROM IMGEMR.dbo.DtlMst " +
+                        "WHERE DtlTblCod=? AND RTRIM(LTRIM(DtlCod))=RTRIM(LTRIM(?))",
+                Integer.class, dtlTblCod, dtlCod.trim().toUpperCase());
+        return cnt != null && cnt > 0;
+    }
+
+    // Sub Detail: PK = DtsTblCod + DtsCod + DtsSubCod
+    public boolean dtsMstExists(String dtsTblCod, String dtsCod, String dtsSubCod) {
+        if (dtsSubCod == null || dtsSubCod.trim().isEmpty()) return false;
+        Integer cnt = jdbc.queryForObject(
+                "SELECT COUNT(1) FROM IMGEMR.dbo.DtsMst " +
+                        "WHERE DtsTblCod=? AND DtsCod=? AND RTRIM(LTRIM(DtsSubCod))=RTRIM(LTRIM(?))",
+                Integer.class, dtsTblCod, dtsCod, dtsSubCod.trim().toUpperCase());
+        return cnt != null && cnt > 0;
+    }
+
     // ─── USERT Auth ───────────────────────────────────────────────
 
     public Map<String, Object> findUserById(String userId) {
@@ -542,11 +657,71 @@ public class EmrRepository {
         return rows.isEmpty() ? null : rows.get(0);
     }
 
+    // เช็ค USERID ซ้ำ (trim ทั้งสองฝั่ง กัน varchar เก็บ trailing space)
+    public boolean userExists(String userId) {
+        if (userId == null || userId.trim().isEmpty()) return false;
+        Integer cnt = jdbc.queryForObject(
+                "SELECT COUNT(1) FROM USERT WHERE RTRIM(LTRIM(USERID))=RTRIM(LTRIM(?))",
+                Integer.class, userId.trim());
+        return cnt != null && cnt > 0;
+    }
+
     public List<Map<String, Object>> searchUsers(String field, String keyword) {
         String col = "NAME".equals(field) ? "NAME" : "USERID";
+        // แสดงเฉพาะ user ที่ยังไม่หมดอายุ: EDATE (varchar(8) yyyyMMdd) > วันปัจจุบัน
+        // เทียบแบบ string เพราะ EDATE เป็น varchar(8); ข้าม row ที่ EDATE ว่าง/null
+        String base =
+                "SELECT TOP 100 USERID,NAME,AUTH,EDATE,CLINCODE FROM USERT " +
+                        "WHERE EDATE IS NOT NULL AND LTRIM(RTRIM(EDATE)) <> '' " +
+                        "AND EDATE > CONVERT(varchar(8), GETDATE(), 112) ";
+        String kw = keyword == null ? "" : keyword.trim();
+        if (kw.isEmpty()) {
+            // keyword ว่าง → แสดงทั้งหมด (ที่ยังไม่ expire)
+            return jdbc.queryForList(base + "ORDER BY " + col);
+        }
         return jdbc.queryForList(
-                "SELECT TOP 100 USERID,NAME,AUTH,EDATE,CLINCODE FROM USERT WHERE " + col + " LIKE ? ORDER BY " + col,
-                "%" + keyword + "%");
+                base + "AND " + col + " LIKE ? ORDER BY " + col,
+                "%" + kw + "%");
+    }
+
+    // ── User pagination (server-side OFFSET/FETCH เหมือน PatientSearch) ──
+    // คงเงื่อนไข business เดิม: แสดงเฉพาะ user ที่ยังไม่หมดอายุ (EDATE > วันนี้)
+    // field = USERID|NAME, keyword ว่าง = ทั้งหมด
+    // SQL Server: OFFSET/FETCH ต้องมี ORDER BY เสมอ; page เริ่มที่ 0
+    public List<Map<String, Object>> listUsers(String field, String keyword, int page, int size) {
+        String col = "NAME".equals(field) ? "NAME" : "USERID";
+        int offset = page * size;
+        StringBuilder sql = new StringBuilder(
+                "SELECT USERID,NAME,AUTH,EDATE,CLINCODE FROM USERT " +
+                        "WHERE EDATE IS NOT NULL AND LTRIM(RTRIM(EDATE)) <> '' " +
+                        "AND EDATE > CONVERT(varchar(8), GETDATE(), 112) ");
+        List<Object> args = new java.util.ArrayList<>();
+        String kw = keyword == null ? "" : keyword.trim();
+        if (!kw.isEmpty()) {
+            sql.append("AND ").append(col).append(" LIKE ? ");
+            args.add("%" + kw + "%");
+        }
+        sql.append("ORDER BY ").append(col).append(" OFFSET ? ROWS FETCH NEXT ? ROWS ONLY");
+        args.add(offset);
+        args.add(size);
+        return jdbc.queryForList(sql.toString(), args.toArray());
+    }
+
+    // นับจำนวน user (ตาม filter เดียวกัน) สำหรับคำนวณจำนวนหน้า
+    public int countUsers(String field, String keyword) {
+        String col = "NAME".equals(field) ? "NAME" : "USERID";
+        StringBuilder sql = new StringBuilder(
+                "SELECT COUNT(1) FROM USERT " +
+                        "WHERE EDATE IS NOT NULL AND LTRIM(RTRIM(EDATE)) <> '' " +
+                        "AND EDATE > CONVERT(varchar(8), GETDATE(), 112) ");
+        List<Object> args = new java.util.ArrayList<>();
+        String kw = keyword == null ? "" : keyword.trim();
+        if (!kw.isEmpty()) {
+            sql.append("AND ").append(col).append(" LIKE ? ");
+            args.add("%" + kw + "%");
+        }
+        Integer cnt = jdbc.queryForObject(sql.toString(), Integer.class, args.toArray());
+        return cnt != null ? cnt : 0;
     }
 
     public void insertUser(String userId, String encPwd, String name, String auth,
@@ -1087,6 +1262,23 @@ public class EmrRepository {
                 "%" + keyword.trim() + "%");
     }
 
+    // ─── โหลดผู้ป่วยทั้งหมดแบบแบ่งหน้า (order by PATID) ───────────
+    // SQL Server: OFFSET/FETCH ต้องมี ORDER BY เสมอ
+    // page เริ่มที่ 0, size = จำนวนต่อหน้า
+    public List<Map<String, Object>> listPatients(int page, int size) {
+        int offset = page * size;
+        return jdbc.queryForList(
+                "SELECT PATID,NAME,JUMINNO,SEX,BIRTHDATE,AGE FROM PATIENTT " +
+                        "ORDER BY PATID OFFSET ? ROWS FETCH NEXT ? ROWS ONLY",
+                offset, size);
+    }
+
+    // นับจำนวนผู้ป่วยทั้งหมด สำหรับคำนวณจำนวนหน้า
+    public int countPatients() {
+        Integer cnt = jdbc.queryForObject("SELECT COUNT(1) FROM PATIENTT", Integer.class);
+        return cnt != null ? cnt : 0;
+    }
+
     public void insertPatient(String patId, String name, String sex, String jumiNno, String birthDate, int age, String userId) {
         jdbc.update(
                 "INSERT INTO PATIENTT(PATID,NAME,SEX,JUMINNO,BIRTHDATE,AGE,CDATE,CUSERID) VALUES(?,?,?,?,?,?,GETDATE(),?)",
@@ -1127,8 +1319,8 @@ public class EmrRepository {
                            String ocrYn, String mediYn, String ocrPrint, int pageCount,
                            String followYn, String printYn) {
         jdbc.update(
-                "INSERT INTO FORMT(FORMCODE,NAME,GRPCODE,ACTIVE,OCRYN,MEDIYN,OCRPRINT,PAGECOUNT,FOLLOWYN,PRINTYN,ORDERBY) " +
-                        "VALUES(?,?,?,?,?,?,?,?,?,?,(SELECT ISNULL(MAX(CAST(ORDERBY AS INT)),0)+1 FROM FORMT))",
+                "INSERT INTO FORMT(FORMCODE,NAME,GRPCODE,ACTIVE,OCRYN,MEDIYN,OCRPRINT,PAGECOUNT,FOLLOWYN,PRINTYN,CLASS,GUBUN,DBLFACE,OLDGUBUN,ORDERBY) " +
+                        "VALUES(?,?,?,?,?,?,?,?,?,?,'M','1','0','0',(SELECT ISNULL(MAX(CAST(ORDERBY AS INT)),0)+1 FROM FORMT))",
                 formCode.trim(), name, grpCode, active, ocrYn, mediYn, ocrPrint, pageCount, followYn, printYn);
     }
 
@@ -1143,6 +1335,15 @@ public class EmrRepository {
 
     public void deleteForm(String formCode) {
         jdbc.update("DELETE FROM FORMT WHERE FORMCODE=?", formCode);
+    }
+
+    // เช็คว่ามี FORMCODE นี้ในระบบแล้วหรือยัง (trim ทั้งสองฝั่ง กัน varchar เก็บ trailing space)
+    public boolean formCodeExists(String formCode) {
+        if (formCode == null || formCode.trim().isEmpty()) return false;
+        Integer cnt = jdbc.queryForObject(
+                "SELECT COUNT(1) FROM FORMT WHERE RTRIM(LTRIM(FORMCODE))=RTRIM(LTRIM(?))",
+                Integer.class, formCode.trim());
+        return cnt != null && cnt > 0;
     }
 
     // ─── OCR Return ───────────────────────────────────────────

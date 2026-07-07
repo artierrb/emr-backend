@@ -24,6 +24,25 @@ public class UserController {
         catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
     }
 
+    // paginated list (server-side) — โหลดทีละหน้าเหมือน PatientSearch
+    // page เริ่มที่ 0, size = จำนวนต่อหน้า; รองรับ field/keyword เดียวกับ search
+    @GetMapping("/list")
+    public ResponseEntity<?> list(
+            @RequestParam(defaultValue = "USERID") String field,
+            @RequestParam(defaultValue = "") String keyword,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "100") int size) {
+        try { return ResponseEntity.ok(emrService.listUsers(field, keyword, page, size)); }
+        catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    // เช็ค USERID ซ้ำ — frontend เรียกตอน blur / ก่อนบันทึก
+    @GetMapping("/exists")
+    public ResponseEntity<?> exists(@RequestParam String userId) {
+        try { return ResponseEntity.ok(Map.of("exists", emrService.userExists(userId))); }
+        catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
     @PostMapping("/insert")
     public ResponseEntity<?> insert(@RequestBody Map<String, String> b) {
         try {
@@ -31,6 +50,9 @@ public class UserController {
                     b.get("name"), b.getOrDefault("auth", "0"),
                     b.getOrDefault("clinCode", ""), b.getOrDefault("edate", ""));
             return ResponseEntity.ok(Map.of("success", true));
+        } catch (IllegalStateException e) {
+            // USERID ซ้ำ (กันชั้นสุดท้ายจาก service) — คืน 409 ให้ frontend แยกกรณีได้
+            return ResponseEntity.status(409).body(Map.of("error", e.getMessage()));
         } catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
     }
 

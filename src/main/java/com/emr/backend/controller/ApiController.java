@@ -28,6 +28,13 @@ public class ApiController {
         catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
     }
 
+    // dropdown คลินิก — แสดงทั้งหมด (ไม่ filter active) ORDER BY NAME
+    @GetMapping("/clinic/all")
+    public ResponseEntity<?> getAllClinics() {
+        try { return ResponseEntity.ok(emrService.getAllClinics()); }
+        catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
     @GetMapping("/user/search")
     public ResponseEntity<?> searchUser(@RequestParam(defaultValue="") String keyword) {
         try { return ResponseEntity.ok(emrService.searchUser(keyword)); }
@@ -38,10 +45,10 @@ public class ApiController {
     public ResponseEntity<?> insertTreatment(@RequestBody Map<String,String> b) {
         try {
             long treatNo = emrService.insertTreatmentFull(
-                b.get("patId"), b.get("inDate"), b.get("clinCode"),
-                b.getOrDefault("docCode",""), b.get("classType"),
-                b.getOrDefault("vstNum",""), b.getOrDefault("admNum",""),
-                b.getOrDefault("userId","DEMO")
+                    b.get("patId"), b.get("inDate"), b.get("clinCode"),
+                    b.getOrDefault("docCode",""), b.get("classType"),
+                    b.getOrDefault("vstNum",""), b.getOrDefault("admNum",""),
+                    b.getOrDefault("userId","DEMO")
             );
             return ResponseEntity.ok(Map.of("success", true, "treatNo", treatNo));
         } catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
@@ -62,7 +69,10 @@ public class ApiController {
             jakarta.servlet.http.HttpServletRequest req) {
         try {
             String userId = (String) req.getAttribute("userId");
-            return ResponseEntity.ok(emrService.getOcrPrintSetup(gubun, userId, clinCode));
+            // แถบ Dept: resolve clinCode จาก USERT ตาม login userId (ไม่เชื่อค่าจาก client)
+            // ให้ตรงกับ SETUPNAME ที่ modal เพิ่มเอกสารใช้ตอน insert/update
+            String setupClin = "D".equals(gubun) ? emrService.getUserClinCode(userId) : clinCode;
+            return ResponseEntity.ok(emrService.getOcrPrintSetup(gubun, userId, setupClin));
         } catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
     }
 
@@ -70,6 +80,62 @@ public class ApiController {
     public ResponseEntity<?> checkReprint(@RequestParam String ocmNum, @RequestParam String formCode) {
         try { return ResponseEntity.ok(Map.of("reprinted", emrService.checkReprint(ocmNum, formCode))); }
         catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    // ── OCR Print (User/Dept tab) — modal เพิ่มเอกสาร ──
+    // list ฟอร์มทั้งหมด + FORMCODE ที่ setup USEYN='Y' ไว้แล้ว (ไว้ map checkbox)
+    //  gubun='U' → setupName = login userId
+    //  gubun='D' → setupName = clinCode ของ login user (resolve จาก USERT) + ต้องมีสิทธิ์ (AUTH<>'0')
+    @GetMapping("/ocrprint/usersetup")
+    public ResponseEntity<?> getUserSetup(@RequestParam(defaultValue="U") String gubun,
+                                          jakarta.servlet.http.HttpServletRequest req) {
+        try {
+            String userId = (String) req.getAttribute("userId");
+            String auth   = (String) req.getAttribute("auth");
+
+            String setupName;
+            if ("D".equals(gubun)) {
+                if (auth == null || "0".equals(auth.trim())) {
+                    return ResponseEntity.status(403).body(Map.of(
+                            "error", "ไม่มีสิทธิ์ เฉพาะ User ตำแหน่ง Manager เท่านั้น โปรดติดต่อ Admin"));
+                }
+                setupName = emrService.getUserClinCode(userId);
+            } else {
+                setupName = userId;
+            }
+
+            return ResponseEntity.ok(Map.of(
+                    "forms",   emrService.getUserSetupFormOptions(),
+                    "checked", emrService.getSetupCheckedForms(gubun, setupName)
+            ));
+        } catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
+    }
+
+    // toggle: checked=true → insert/update USEYN='Y' ; false → update USEYN='N'
+    @PostMapping("/ocrprint/usersetup/toggle")
+    public ResponseEntity<?> toggleUserSetup(@RequestBody Map<String,Object> b,
+                                             jakarta.servlet.http.HttpServletRequest req) {
+        try {
+            String userId   = (String) req.getAttribute("userId");
+            String auth     = (String) req.getAttribute("auth");
+            String gubun    = String.valueOf(b.getOrDefault("gubun", "U"));
+            String formCode = String.valueOf(b.get("formCode"));
+            boolean checked = Boolean.parseBoolean(String.valueOf(b.get("checked")));
+
+            String setupName;
+            if ("D".equals(gubun)) {
+                if (auth == null || "0".equals(auth.trim())) {
+                    return ResponseEntity.status(403).body(Map.of(
+                            "error", "ไม่มีสิทธิ์ เฉพาะ User ตำแหน่ง Manager เท่านั้น โปรดติดต่อ Admin"));
+                }
+                setupName = emrService.getUserClinCode(userId);
+            } else {
+                setupName = userId;
+            }
+
+            emrService.toggleSetupForm(gubun, setupName, userId, formCode, checked);
+            return ResponseEntity.ok(Map.of("success", true));
+        } catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
     }
 
     @GetMapping("/ocrprint/reasons")
@@ -146,7 +212,7 @@ public class ApiController {
 
     @GetMapping("/viewer/pages")
     public ResponseEntity<?> getViewerPages(@RequestParam String hn, @RequestParam String formCode,
-            @RequestParam(defaultValue="ALL") String classFilter) {
+                                            @RequestParam(defaultValue="ALL") String classFilter) {
         try { return ResponseEntity.ok(emrService.getViewerPages(hn, formCode, classFilter)); }
         catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
     }
@@ -167,10 +233,10 @@ public class ApiController {
     public ResponseEntity<?> updateTreatCheck(@RequestBody Map<String,String> b) {
         try {
             emrService.updateTreatCheck(
-                Long.parseLong(b.get("treatNo")),
-                Integer.parseInt(b.get("checkNo")),
-                b.get("value"),
-                b.getOrDefault("userId", "DEMO")
+                    Long.parseLong(b.get("treatNo")),
+                    Integer.parseInt(b.get("checkNo")),
+                    b.get("value"),
+                    b.getOrDefault("userId", "DEMO")
             );
             return ResponseEntity.ok(Map.of("success", true));
         } catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
@@ -395,9 +461,15 @@ public class ApiController {
     }
 
     // ─── TabMst CRUD ──────────────────────────────────────────
+    @GetMapping("/master/tabmst/exists")
+    public ResponseEntity<?> tabMstExists(@RequestParam String tabCodTyp, @RequestParam String tabCod) {
+        try { return ResponseEntity.ok(Map.of("exists", emrService.tabMstExists(tabCodTyp, tabCod))); }
+        catch(Exception e) { return ResponseEntity.status(500).body(Map.of("error",e.getMessage())); }
+    }
     @PostMapping("/master/tabmst/insert")
     public ResponseEntity<?> insertTabMst(@RequestBody java.util.Map<String,String> b) {
         try { emrService.insertTabMst(b.get("tabCod"),b.get("tabCodNam"),b.get("tabCodTyp")); return ResponseEntity.ok(Map.of("success",true)); }
+        catch(IllegalStateException e) { return ResponseEntity.status(409).body(Map.of("error",e.getMessage())); }
         catch(Exception e) { return ResponseEntity.status(500).body(Map.of("error",e.getMessage())); }
     }
     @PostMapping("/master/tabmst/update")
@@ -417,6 +489,11 @@ public class ApiController {
         try { return ResponseEntity.ok(Map.of("seq", emrService.getNextDtlDspSeq(dtlTblCod))); }
         catch(Exception e) { return ResponseEntity.status(500).body(Map.of("error",e.getMessage())); }
     }
+    @GetMapping("/master/dtlmst/exists")
+    public ResponseEntity<?> dtlMstExists(@RequestParam String dtlTblCod, @RequestParam String dtlCod) {
+        try { return ResponseEntity.ok(Map.of("exists", emrService.dtlMstExists(dtlTblCod, dtlCod))); }
+        catch(Exception e) { return ResponseEntity.status(500).body(Map.of("error",e.getMessage())); }
+    }
     @PostMapping("/master/dtlmst/insert")
     public ResponseEntity<?> insertDtlMst(@RequestBody java.util.Map<String,String> b) {
         try {
@@ -424,7 +501,8 @@ public class ApiController {
             String uid = b.getOrDefault("userId","DEMO");
             emrService.insertDtlMst(b.get("dtlTblCod"),b.get("dtlCod"),b.get("dtlCodNam"),b.get("dtlCodVal"),seq,uid);
             return ResponseEntity.ok(Map.of("success",true));
-        } catch(Exception e) { return ResponseEntity.status(500).body(Map.of("error",e.getMessage())); }
+        } catch(IllegalStateException e) { return ResponseEntity.status(409).body(Map.of("error",e.getMessage())); }
+        catch(Exception e) { return ResponseEntity.status(500).body(Map.of("error",e.getMessage())); }
     }
     @PostMapping("/master/dtlmst/update")
     public ResponseEntity<?> updateDtlMst(@RequestBody java.util.Map<String,String> b) {
@@ -438,7 +516,7 @@ public class ApiController {
     }
     @PostMapping("/master/dtlmst/reorder")
     public ResponseEntity<?> reorderDtlMst(@RequestParam String dtlTblCod,
-                                            @RequestBody java.util.List<java.util.Map<String,String>> items) {
+                                           @RequestBody java.util.List<java.util.Map<String,String>> items) {
         try { emrService.reorderDtlMst(dtlTblCod,items); return ResponseEntity.ok(Map.of("success",true)); }
         catch(Exception e) { return ResponseEntity.status(500).body(Map.of("error",e.getMessage())); }
     }
@@ -449,6 +527,11 @@ public class ApiController {
         try { return ResponseEntity.ok(Map.of("seq", emrService.getNextDtsDspSeq(dtsTblCod,dtsCod))); }
         catch(Exception e) { return ResponseEntity.status(500).body(Map.of("error",e.getMessage())); }
     }
+    @GetMapping("/master/dtsmst/exists")
+    public ResponseEntity<?> dtsMstExists(@RequestParam String dtsTblCod, @RequestParam String dtsCod, @RequestParam String dtsSubCod) {
+        try { return ResponseEntity.ok(Map.of("exists", emrService.dtsMstExists(dtsTblCod, dtsCod, dtsSubCod))); }
+        catch(Exception e) { return ResponseEntity.status(500).body(Map.of("error",e.getMessage())); }
+    }
     @PostMapping("/master/dtsmst/insert")
     public ResponseEntity<?> insertDtsMst(@RequestBody java.util.Map<String,String> b) {
         try {
@@ -456,7 +539,8 @@ public class ApiController {
             String uid = b.getOrDefault("userId","DEMO");
             emrService.insertDtsMst(b.get("dtsTblCod"),b.get("dtsCod"),b.get("dtsSubCod"),b.get("dtsCodNam"),b.get("dtsCodVal"),seq,uid);
             return ResponseEntity.ok(Map.of("success",true));
-        } catch(Exception e) { return ResponseEntity.status(500).body(Map.of("error",e.getMessage())); }
+        } catch(IllegalStateException e) { return ResponseEntity.status(409).body(Map.of("error",e.getMessage())); }
+        catch(Exception e) { return ResponseEntity.status(500).body(Map.of("error",e.getMessage())); }
     }
     @PostMapping("/master/dtsmst/update")
     public ResponseEntity<?> updateDtsMst(@RequestBody java.util.Map<String,String> b) {
@@ -470,7 +554,7 @@ public class ApiController {
     }
     @PostMapping("/master/dtsmst/reorder")
     public ResponseEntity<?> reorderDtsMst(@RequestParam String dtsTblCod, @RequestParam String dtsCod,
-                                            @RequestBody java.util.List<java.util.Map<String,String>> items) {
+                                           @RequestBody java.util.List<java.util.Map<String,String>> items) {
         try { emrService.reorderDtsMst(dtsTblCod,dtsCod,items); return ResponseEntity.ok(Map.of("success",true)); }
         catch(Exception e) { return ResponseEntity.status(500).body(Map.of("error",e.getMessage())); }
     }
@@ -488,6 +572,14 @@ public class ApiController {
         if (keyword == null || keyword.isBlank())
             return ResponseEntity.badRequest().body(Map.of("error","keyword required"));
         try { return ResponseEntity.ok(emrService.searchPatient(field, keyword)); }
+        catch(Exception e) { return ResponseEntity.status(500).body(Map.of("error",e.getMessage())); }
+    }
+
+    // โหลดผู้ป่วยทั้งหมดแบบแบ่งหน้า (order by PATID) — ใช้ตอนเปิด PatientSearchModal
+    @GetMapping("/patient/list")
+    public ResponseEntity<?> listPatients(@RequestParam(defaultValue="0") int page,
+                                          @RequestParam(defaultValue="100") int size) {
+        try { return ResponseEntity.ok(emrService.listPatients(page, size)); }
         catch(Exception e) { return ResponseEntity.status(500).body(Map.of("error",e.getMessage())); }
     }
 
@@ -587,6 +679,16 @@ public class ApiController {
         catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
     }
 
+    // เช็ค FORMCODE ซ้ำ — frontend เรียกตอน blur / ก่อนบันทึก
+    @GetMapping("/forms/exists")
+    public ResponseEntity<?> formCodeExists(@RequestParam String formCode) {
+        try {
+            return ResponseEntity.ok(Map.of("exists", emrService.formCodeExists(formCode)));
+        } catch (Exception e) {
+            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+        }
+    }
+
     @PostMapping("/forms/insert")
     public ResponseEntity<?> insertForm(@RequestBody Map<String,Object> b) {
         try {
@@ -602,6 +704,9 @@ public class ApiController {
                     b.getOrDefault("PRINTYN","N").toString()
             );
             return ResponseEntity.ok(Map.of("success", true));
+        } catch (IllegalStateException e) {
+            // FORMCODE ซ้ำ (กันชั้นสุดท้ายจาก service) — คืน 409 ให้ frontend แยกกรณีได้
+            return ResponseEntity.status(409).body(Map.of("error", e.getMessage()));
         } catch (Exception e) { return ResponseEntity.status(500).body(Map.of("error", e.getMessage())); }
     }
 

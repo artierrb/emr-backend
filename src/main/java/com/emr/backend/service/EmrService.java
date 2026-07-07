@@ -94,6 +94,28 @@ public class EmrService {
         return repo.getOcrPrintSetup(inputGubun, loginUserId, loginClinic);
     }
 
+    // ── OCR Print (User/Dept tab) — modal เพิ่มเอกสาร ──
+    public List<Map<String, Object>> getUserSetupFormOptions() {
+        return repo.getUserSetupFormOptions();
+    }
+
+    public List<String> getSetupCheckedForms(String inputGubun, String setupName) {
+        return repo.getSetupCheckedForms(inputGubun, setupName);
+    }
+
+    public void toggleSetupForm(String inputGubun, String setupName, String loginUserId,
+                                String formCode, boolean checked) {
+        repo.toggleSetupForm(inputGubun, setupName, loginUserId, formCode, checked);
+    }
+
+    // CLINCODE ของ login user (resolve จาก USERT ที่ backend — ไม่เชื่อ client)
+    public String getUserClinCode(String userId) {
+        Map<String, Object> user = repo.findUserById(userId);
+        if (user == null) return "";
+        Object c = user.get("CLINCODE");
+        return c == null ? "" : c.toString().trim();
+    }
+
     public boolean checkReprint(String ocmNum, String formCode) {
         return repo.checkReprint(ocmNum, formCode);
     }
@@ -333,14 +355,24 @@ public class EmrService {
 
     // ─── TabMst CRUD ──────────────────────────────────────────
 
-    public void insertTabMst(String a, String b, String c) { repo.insertTabMst(a, b, c); }
+    public boolean tabMstExists(String tabCodTyp, String tabCod) { return repo.tabMstExists(tabCodTyp, tabCod); }
+    public void insertTabMst(String a, String b, String c) {
+        // กันชั้นสุดท้าย: select เช็คซ้ำก่อน insert (a=tabCod, c=tabCodTyp)
+        if (repo.tabMstExists(c, a)) throw new IllegalStateException("Table Code นี้มีอยู่แล้ว");
+        repo.insertTabMst(a, b, c);
+    }
     public void updateTabMst(String a, String b, String c) { repo.updateTabMst(a, b, c); }
     public void deleteTabMst(String a)                     { repo.deleteTabMst(a); }
 
     // ─── DtlMst CRUD ──────────────────────────────────────────
 
     public int getNextDtlDspSeq(String t)                                                      { return repo.getNextDtlDspSeq(t); }
-    public void insertDtlMst(String t, String c, String n, String v, int s, String u)          { repo.insertDtlMst(t, c, n, v, s, u); }
+    public boolean dtlMstExists(String dtlTblCod, String dtlCod) { return repo.dtlMstExists(dtlTblCod, dtlCod); }
+    public void insertDtlMst(String t, String c, String n, String v, int s, String u)          {
+        // กันชั้นสุดท้าย: select เช็คซ้ำก่อน insert (t=dtlTblCod, c=dtlCod)
+        if (repo.dtlMstExists(t, c)) throw new IllegalStateException("Detail Code นี้มีอยู่แล้ว");
+        repo.insertDtlMst(t, c, n, v, s, u);
+    }
     public void updateDtlMst(String t, String c, String n, String v, String u)                 { repo.updateDtlMst(t, c, n, v, u); }
     public void deleteDtlMst(String t, String c)                                               { repo.deleteDtlMst(t, c); }
     public void reorderDtlMst(String t, List<Map<String, String>> items) {
@@ -350,7 +382,12 @@ public class EmrService {
     // ─── DtsMst CRUD ──────────────────────────────────────────
 
     public int getNextDtsDspSeq(String t, String c)                                                    { return repo.getNextDtsDspSeq(t, c); }
-    public void insertDtsMst(String t, String c, String s, String n, String v, int seq, String u)      { repo.insertDtsMst(t, c, s, n, v, seq, u); }
+    public boolean dtsMstExists(String dtsTblCod, String dtsCod, String dtsSubCod) { return repo.dtsMstExists(dtsTblCod, dtsCod, dtsSubCod); }
+    public void insertDtsMst(String t, String c, String s, String n, String v, int seq, String u)      {
+        // กันชั้นสุดท้าย: select เช็คซ้ำก่อน insert (t=dtsTblCod, c=dtsCod, s=dtsSubCod)
+        if (repo.dtsMstExists(t, c, s)) throw new IllegalStateException("Sub Detail Code นี้มีอยู่แล้ว");
+        repo.insertDtsMst(t, c, s, n, v, seq, u);
+    }
     public void updateDtsMst(String t, String c, String s, String n, String v, String u)               { repo.updateDtsMst(t, c, s, n, v, u); }
     public void deleteDtsMst(String t, String c, String s)                                             { repo.deleteDtsMst(t, c, s); }
     public void reorderDtsMst(String t, String c, List<Map<String, String>> items) {
@@ -403,8 +440,31 @@ public class EmrService {
         return repo.searchUsers(field, keyword);
     }
 
+    // paginated list (server-side) — คืนโครงเดียวกับ patient list
+    public Map<String, Object> listUsers(String field, String keyword, int page, int size) {
+        List<Map<String, Object>> data = repo.listUsers(field, keyword, page, size);
+        int total = repo.countUsers(field, keyword);
+        int pages = size > 0 ? (int) Math.ceil((double) total / size) : 0;
+        Map<String, Object> res = new java.util.HashMap<>();
+        res.put("data", data);
+        res.put("total", total);
+        res.put("page", page);
+        res.put("size", size);
+        res.put("pages", pages);
+        return res;
+    }
+
+    // เช็ค USERID ซ้ำ (ให้ frontend เรียกตอน blur / ก่อนบันทึก)
+    public boolean userExists(String userId) {
+        return repo.userExists(userId);
+    }
+
     public void insertUser(String userId, String plainPwd, String name,
                            String auth, String clinCode, String edate) {
+        // กันชั้นสุดท้าย: select เช็คซ้ำก่อน insert เสมอ (เผื่อหลุดจากการเช็คฝั่ง frontend)
+        if (repo.userExists(userId)) {
+            throw new IllegalStateException("User ID นี้มีอยู่ในระบบแล้ว");
+        }
         String enc = com.emr.backend.util.Cryptograph.encrypt(userId, plainPwd);
         repo.insertUser(userId, enc, name, auth, clinCode, edate);
     }
@@ -648,6 +708,24 @@ public class EmrService {
         return repo.searchPatient(field, keyword);
     }
 
+    // โหลดผู้ป่วยทั้งหมดแบบแบ่งหน้า — คืน data + total + จำนวนหน้า
+    // page เริ่มที่ 0
+    public Map<String, Object> listPatients(int page, int size) {
+        int safePage = Math.max(page, 0);
+        int safeSize = (size > 0 && size <= 500) ? size : 100;
+        int total    = repo.countPatients();
+        int pages    = (int) Math.ceil((double) total / safeSize);
+        List<Map<String, Object>> data = repo.listPatients(safePage, safeSize);
+
+        Map<String, Object> res = new java.util.HashMap<>();
+        res.put("data", data);
+        res.put("total", total);
+        res.put("page", safePage);
+        res.put("size", safeSize);
+        res.put("pages", pages);
+        return res;
+    }
+
     // sync HIS เฉพาะ HN เดียวก่อนหาคนไข้ (ใช้ตอนพิมพ์ HN ในหน้า Scan/View)
     // ส่ง hn เข้า SP แบบ padded (raw, ไม่ trim) เพื่อให้คนไข้ใหม่จาก HIS sync แล้วเจอเลย
     public List<Map<String, Object>> syncAndFindPatient(String hn) {
@@ -719,9 +797,19 @@ public class EmrService {
         return repo.getFormGroups();
     }
 
+    // เช็ค FORMCODE ซ้ำ (ให้ frontend เรียกตอน blur / ก่อนบันทึก)
+    public boolean formCodeExists(String formCode) {
+        return repo.formCodeExists(formCode);
+    }
+
     public void insertForm(String formCode, String name, String grpCode, String active,
                            String ocrYn, String mediYn, String ocrPrint, int pageCount,
                            String followYn, String printYn) {
+        // กันชั้นสุดท้าย: select เช็คซ้ำก่อน insert เสมอ (เผื่อหลุดจากการเช็คฝั่ง frontend
+        // หรือมีการยิงพร้อมกัน) — ถ้าซ้ำ throw ให้ controller คืน error กลับไป
+        if (repo.formCodeExists(formCode)) {
+            throw new IllegalStateException("Form Code นี้มีอยู่ในระบบแล้ว");
+        }
         repo.insertForm(formCode, name, grpCode, active, ocrYn, mediYn, ocrPrint, pageCount, followYn, printYn);
     }
 
