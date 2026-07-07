@@ -26,7 +26,7 @@ public class JwtFilter extends OncePerRequestFilter {
 
         String path = req.getRequestURI();
         // skip auth endpoints, image endpoint, and static resources
-        if (path.startsWith("/api/auth/") || path.startsWith("/api/image/") || path.startsWith("/api/watermark/") || path.startsWith("/api/ocrprint/pdf/") || path.startsWith("/api/scan/verify") || path.startsWith("/api/scan/complete") || path.startsWith("/api/print/verify") || !path.startsWith("/api/")) {
+        if (path.startsWith("/api/auth/") || path.startsWith("/api/image/") || path.startsWith("/api/watermark/") || path.startsWith("/api/ocrprint/pdf/") || path.startsWith("/api/scan/verify") || path.startsWith("/api/scan/complete") || path.startsWith("/api/print/verify") || path.startsWith("/api/update/") || !path.startsWith("/api/")) {
             chain.doFilter(req, res); return;
         }
 
